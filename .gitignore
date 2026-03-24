@@ -1,0 +1,23 @@
+# Python virtual environments
+.venv/
+**/.venv/
+venv/
+**/venv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Project data folders (requested)
+inputs/
+outputs/
+
+# Local/editor/system files
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
