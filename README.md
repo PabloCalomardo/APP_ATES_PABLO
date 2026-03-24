@@ -167,6 +167,19 @@ python PRAs/PRA_Divisor.py --help
 python PRAs/PRA_Watershed_Subdivision.py --help
 ```
 
+- Postprocess de Flow-Py (formes d'allau a partir de `source_ids_bitmask.tif`):
+
+```bash
+python PostProcess_FlowPY/post_FlowPy.py
+```
+
+Resultat per cada `res_*` de `outputs/Flow-Py/*`:
+- `outputs/Avalanche_Shapes/avalanche_shapes.geojson`
+
+Aquest GeoJSON únic conté dos tipus de features:
+- `feature_type=avalanche`: polígons de cada allau individual (`avalanche_id`)
+- `feature_type=overlap_zone`: polígons de combinacions exactes de solapament (`bitmask`, `n_aval`, `aval_ids`)
+
 ## Notes
 
 - El pipeline està pensat per revisar resultats pas a pas (cada pas escriu a la seva carpeta dins `outputs/`).
