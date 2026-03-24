@@ -34,6 +34,9 @@ Executa 6 passos consecutius:
 6. **Flow-Py per basin (N execucions automàtiques)**
   - Llegeix totes les capes `pra_basin_*.tif` de `outputs/Watershed_Subdivisions/`.
   - Executa Flow-Py una vegada per capa, usant com a DEM d'entrada el DEM postprocessat (`outputs/Preprocess/dem_filled_simple.tif`).
+  - Genera també `exposure.tif` dins de cada carpeta `res_*` del Flow-Py.
+    - Si existeix `backcalculation.tif`, `exposure.tif` es deriva d'aquesta capa.
+    - Si no, es crea com a màscara binària de `cell_counts.tif` (`>0`).
   - Desa les sortides a `outputs/Flow-Py/`, amb una carpeta pròpia per cada basin (`pra_basin_0/`, `pra_basin_1/`, ...).
 
 ## Estructura de carpetes
@@ -75,6 +78,16 @@ Des de l’arrel del projecte (on hi ha `main.py`):
 ```bash
 python main.py
 ```
+
+Per executar **només el pas 6 (Flow-Py)** amb resultats ja calculats (sense repetir passos 1-5):
+
+```bash
+python main.py --only-step6
+```
+
+Prerequisits per `--only-step6`:
+- `outputs/Preprocess/dem_filled_simple.tif`
+- `outputs/Watershed_Subdivisions/pra_basin_*.tif`
 
 Això assumeix els defaults:
 
@@ -127,6 +140,8 @@ python main.py \
 - `outputs/Flow-Py/pra_basin_1/res_YYYYMMDD_HHMMSS/*`
 - ...
 
+En cada `res_*` del Flow-Py tindràs, a més de les capes estàndard, una capa `exposure.tif`.
+
 ## Paràmetres nous (pas 6: Flow-Py)
 
 - `--flowpy-dir` (default: `Flow-py_Autoates_Editat/FlowPy_detrainment`)
@@ -136,6 +151,7 @@ python main.py \
 - `--flowpy-max-z` (default: `8848`)
 - `--flowpy-forest` (default: `inputs/FOREST.tif`)
 - `--flowpy-infra` (opcional)
+- `--only-step6` (executa exclusivament el pas 6)
 
 ## Execució dels scripts per separat (opcional)
 

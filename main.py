@@ -280,6 +280,59 @@ def _flowpy_release_input_for_basin(release_path: Path, run_dir: Path) -> Path:
 	return adjusted_path
 
 
+def _latest_flowpy_result_dir(run_dir: Path) -> Optional[Path]:
+	result_dirs = [p for p in run_dir.glob("res_*") if p.is_dir()]
+	if not result_dirs:
+		return None
+	return max(result_dirs, key=lambda p: p.stat().st_mtime)
+
+
+def _create_flowpy_exposure_layer(flowpy_res_dir: Path) -> Optional[Path]:
+	"""Create exposure.tif from Flow-Py outputs.
+
+	Priority:
+	1) backcalculation.tif (if back-tracking/infra is enabled)
+	2) binary mask from cell_counts.tif (>0)
+	"""
+	try:
+		import numpy as np
+		import rasterio
+	except Exception as e:  # pragma: no cover
+		raise RuntimeError("Missing dependencies for exposure layer generation (numpy/rasterio)") from e
+
+	backcalc_path = flowpy_res_dir / "backcalculation.tif"
+	cell_counts_path = flowpy_res_dir / "cell_counts.tif"
+	exposure_path = flowpy_res_dir / "exposure.tif"
+
+	if backcalc_path.exists():
+		with rasterio.open(backcalc_path) as src:
+			arr = src.read(1)
+			profile = src.profile.copy()
+		with rasterio.open(exposure_path, "w", **profile) as dst:
+			dst.write(arr, 1)
+		return exposure_path
+
+	if cell_counts_path.exists():
+		with rasterio.open(cell_counts_path) as src:
+			counts = src.read(1)
+			profile = src.profile.copy()
+			nodata = src.nodata
+
+		if nodata is None:
+			exposure = (counts > 0).astype(np.uint8)
+		else:
+			valid = counts != nodata
+			exposure = np.zeros_like(counts, dtype=np.uint8)
+			exposure[np.logical_and(valid, counts > 0)] = 1
+
+		profile.update(dtype="uint8", nodata=0, compress="deflate")
+		with rasterio.open(exposure_path, "w", **profile) as dst:
+			dst.write(exposure, 1)
+		return exposure_path
+
+	return None
+
+
 def step_06_flowpy_per_basin(
 	dem_path: Path,
 	watershed_out_dir: Path,
@@ -316,6 +369,7 @@ def step_06_flowpy_per_basin(
 	for idx, (_, pra_basin_path) in enumerate(pra_basin_files, start=1):
 		run_dir = flowpy_out_dir / pra_basin_path.stem
 		_ensure_dir(run_dir)
+		prev_res_dirs = {p.resolve() for p in run_dir.glob("res_*") if p.is_dir()}
 
 		release_input = _flowpy_release_input_for_basin(release_path=pra_basin_path, run_dir=run_dir)
 
@@ -337,6 +391,17 @@ def step_06_flowpy_per_basin(
 
 		print(f"[6/6] Flow-Py {idx}/{total}: {pra_basin_path.name}")
 		flowpy_main(args, kwargs)
+
+		new_res_dirs = [p for p in run_dir.glob("res_*") if p.is_dir() and p.resolve() not in prev_res_dirs]
+		if new_res_dirs:
+			flowpy_res_dir = max(new_res_dirs, key=lambda p: p.stat().st_mtime)
+		else:
+			flowpy_res_dir = _latest_flowpy_result_dir(run_dir)
+
+		if flowpy_res_dir is not None:
+			exposure_path = _create_flowpy_exposure_layer(flowpy_res_dir)
+			if exposure_path is not None:
+				print(f"        exposure: {exposure_path.name}")
 		created_run_dirs.append(run_dir)
 
 	return created_run_dirs
@@ -356,6 +421,11 @@ def parse_args() -> argparse.Namespace:
 		"--outputs-dir",
 		default="outputs",
 		help="Base output folder (relative to APP_ATES_PABLO by default)",
+	)
+	parser.add_argument(
+		"--only-step6",
+		action="store_true",
+		help="Run only step 6 (Flow-Py per basin) using existing outputs from previous steps",
 	)
 
 	# PRA parameters (keep defaults aligned with script docstring)
@@ -421,6 +491,31 @@ def main() -> None:
 	out_04 = outputs_dir / "PRA_Divisor"
 	out_05 = outputs_dir / "Watershed_Subdivisions"
 	out_06 = outputs_dir / "Flow-Py"
+
+	if args.only_step6:
+		dem_filled = out_02 / "dem_filled_simple.tif"
+		if not dem_filled.exists():
+			raise RuntimeError(
+				"Missing preprocessed DEM for step 6 only mode: "
+				f"{dem_filled}. Run full pipeline first (steps 1-5)."
+			)
+
+		print("[only-step6] Running Flow-Py per basin using existing outputs...")
+		step_06_flowpy_per_basin(
+			dem_path=dem_filled,
+			watershed_out_dir=out_05,
+			flowpy_out_dir=out_06,
+			flowpy_dir=flowpy_dir,
+			alpha=args.flowpy_alpha,
+			exponent=args.flowpy_exponent,
+			flux=args.flowpy_flux,
+			max_z=args.flowpy_max_z,
+			forest_path=flowpy_forest,
+			infra_path=flowpy_infra,
+		)
+		print("Done (step 6 only).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
 	print("[1/6] Validating inputs...")
 	step_01_inputs(dem_path=dem_path, forest_path=forest_path, out_dir=out_01)
