@@ -85,6 +85,25 @@ Per executar **només el pas 6 (Flow-Py)** amb resultats ja calculats (sense rep
 python main.py --only-step6
 ```
 
+Per executar fins a un pas concret (de l'1 al 7), fes servir `--until-n`.
+Per exemple, per executar només els passos 1, 2 i 3:
+
+```bash
+python main.py --until-n 3
+```
+
+Altres exemples:
+
+```bash
+# Executa passos 1..5
+python main.py --until-n 5
+
+# Executa passos 1..6 (sense postprocess final)
+python main.py --until-n 6
+```
+
+Nota: `--only-step6` i `--until-n` són incompatibles i no es poden usar alhora.
+
 Prerequisits per `--only-step6`:
 - `outputs/Preprocess/dem_filled_simple.tif`
 - `outputs/Watershed_Subdivisions/pra_basin_*.tif`
@@ -152,6 +171,7 @@ En cada `res_*` del Flow-Py tindràs, a més de les capes estàndard, una capa `
 - `--flowpy-max-z` (default: `8848`)
 - `--flowpy-infra` (opcional)
 - `--only-step6` (executa exclusivament el pas 6)
+- `--until-n` (executa des del pas 1 fins al pas N, amb N entre 1 i 7)
 
 Nota: el pas de preprocess genera automàticament `outputs/Preprocess/FOREST_NORMALIZED.tif` (escala 0..1) i és la capa forest que usa Flow-Py.
 

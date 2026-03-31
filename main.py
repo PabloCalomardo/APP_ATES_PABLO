@@ -498,14 +498,21 @@ def parse_args() -> argparse.Namespace:
 		action="store_true",
 		help="Run only step 6 (Flow-Py per basin) using existing outputs from previous steps",
 	)
+	parser.add_argument(
+		"--until-n",
+		type=int,
+		choices=range(1, 8),
+		default=None,
+		help="Run pipeline from step 1 up to step N (N in 1..7)",
+	)
 
 	# PRA parameters (keep defaults aligned with script docstring)
-	parser.add_argument("--radius", type=int, default=6)
-	parser.add_argument("--prob", type=float, default=0.5)
-	parser.add_argument("--winddir", type=int, default=0)
-	parser.add_argument("--windtol", type=int, default=180)
-	parser.add_argument("--pra-thd", type=float, default=0.15)
-	parser.add_argument("--sf", type=int, default=3)
+	parser.add_argument("--radius", type=int, default=6) #default dem_gran 6
+	parser.add_argument("--prob", type=float, default=0.6) #default dem_gran 0.5
+	parser.add_argument("--winddir", type=int, default=0) #default dem_gran 0 (wind from north)
+	parser.add_argument("--windtol", type=int, default=180) #default dem_gran 180 (no wind direction preference)
+	parser.add_argument("--pra-thd", type=float, default=0.15) #default dem_gran 0.15 (PRA threshold for binary classification)
+	parser.add_argument("--sf", type=int, default=3) #default dem_gran 3 (smoothing factor for final PRA binary output, higher = smoother)
 
 	parser.add_argument("--quiet", action="store_true", help="Reduce verbose logs for some steps")
 
@@ -542,11 +549,15 @@ def parse_args() -> argparse.Namespace:
 		default=None,
 		help="Optional infrastructure raster passed to Flow-Py as infra=...",
 	)
-	return parser.parse_args()
+	args = parser.parse_args()
+	if args.only_step6 and args.until_n is not None:
+		parser.error("--only-step6 cannot be used together with --until-n")
+	return args
 
 
 def main() -> None:
 	args = parse_args()
+	until_n = args.until_n
 	dem_path = _abs_path_from_app(args.dem)
 	forest_path = None if args.forest is None else _abs_path_from_app(args.forest)
 	outputs_dir = _abs_path_from_app(args.outputs_dir)
@@ -595,21 +606,29 @@ def main() -> None:
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
-	print("[1/6] Validating inputs...")
+	print("[1] Validating inputs...")
 	step_01_inputs(dem_path=dem_path, forest_path=forest_path, out_dir=out_01)
+	if until_n == 1:
+		print("Stopped at step 1 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
-	print("[2/6] Preprocessing DEM and aligning forest raster...")
+	print("[2] Preprocessing DEM and aligning forest raster...")
 	dem_filled, forest_aligned, forest_normalized = step_02_preprocess_dem(
 		dem_path=dem_path,
 		out_dir=out_02,
 		forest_path=forest_path,
 		forest_crs=args.forest_crs,
 	)
+	if until_n == 2:
+		print("Stopped at step 2 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
 	pra_forest_path = forest_aligned if forest_aligned is not None else forest_path
 	flowpy_forest_for_run = forest_normalized
 
-	print("[3/6] Computing PRA...")
+	print("[3] Computing PRA...")
 	pra_outputs = step_03_pra_autoates(
 		forest_type=args.forest_type,
 		dem_path=dem_filled,
@@ -626,8 +645,12 @@ def main() -> None:
 	pra_binary = pra_outputs["pra_binary"]
 	if not pra_binary.exists():
 		raise RuntimeError(f"Expected PRA binary output not found: {pra_binary}")
+	if until_n == 3:
+		print("Stopped at step 3 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
-	print("[4/6] Dividing PRA (basin-based)...")
+	print("[4] Dividing PRA (basin-based)...")
 	step_04_pra_divisor(
 		dem_path=dem_filled,
 		pra_binary_path=pra_binary,
@@ -641,6 +664,10 @@ def main() -> None:
 	pra_assigned = out_04 / "pra_assigned_junction.tif"
 	if not pra_assigned.exists():
 		raise RuntimeError(f"Expected PRA divisor output not found: {pra_assigned}")
+	if until_n == 4:
+		print("Stopped at step 4 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
 	grass_epsg_value = args.grass_epsg
 	if grass_epsg_value is None:
@@ -650,9 +677,9 @@ def main() -> None:
 				"Could not infer DEM EPSG for watershed subdivision. "
 				"Use --grass-epsg <EPSG> (for example --grass-epsg 25833)."
 			)
-		print(f"[5/6] Using DEM EPSG for GRASS location: {grass_epsg_value}")
+		print(f"[5] Using DEM EPSG for GRASS location: {grass_epsg_value}")
 
-	print("[5/6] Watershed subdivision + PRA split...")
+	print("[5] Watershed subdivision + PRA split...")
 	step_05_watershed_subdivision(
 		dem_path=dem_filled,
 		pra_assigned_path=pra_assigned,
@@ -665,7 +692,12 @@ def main() -> None:
 		grass_location=args.grass_location,
 		grass_mapset=args.grass_mapset,
 	)
+	if until_n == 5:
+		print("Stopped at step 5 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
+	print("[6] Running Flow-Py per basin...")
 	step_06_flowpy_per_basin(
 		dem_path=dem_filled,
 		watershed_out_dir=out_05,
@@ -678,6 +710,10 @@ def main() -> None:
 		forest_path=flowpy_forest_for_run,
 		infra_path=flowpy_infra,
 	)
+	if until_n == 6:
+		print("Stopped at step 6 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
 	print("[7/7] Post-processing Flow-Py outputs...")
 	postprocess_geojson = step_07_postprocess_flowpy(
@@ -686,6 +722,10 @@ def main() -> None:
 		dem_original_path=dem_path,
 	)
 	print(f"        postprocess: {postprocess_geojson.name}")
+	if until_n == 7:
+		print("Stopped at step 7 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
 
 	print("Done.")
 	print(f"Outputs base dir: {outputs_dir}")

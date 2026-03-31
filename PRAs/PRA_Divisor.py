@@ -430,6 +430,61 @@ def stage_3_drainage_areas(
 	return best_junction_id, min_order, drainage_area_size
 
 
+def assign_unassigned_pra_clusters_8conn(
+	pra_mask: np.ndarray,
+	assigned_junction: np.ndarray,
+	starting_junction_id: int,
+) -> Dict[int, int]:
+	"""Assign new junction IDs to unassigned PRA pixels using 8-neighbour connectivity."""
+	unassigned_mask = pra_mask & (assigned_junction == 0)
+	if not np.any(unassigned_mask):
+		return {}
+
+	rows, cols = assigned_junction.shape
+	visited = np.zeros(assigned_junction.shape, dtype=bool)
+	cluster_sizes: Dict[int, int] = {}
+	next_junction_id = int(starting_junction_id)
+
+	# 8-neighbour connectivity so diagonal-touching pixels belong to the same cluster.
+	neighbors = [
+		(-1, -1), (-1, 0), (-1, 1),
+		(0, -1),           (0, 1),
+		(1, -1),  (1, 0),  (1, 1),
+	]
+
+	seed_rows, seed_cols = np.where(unassigned_mask)
+	for sr, sc in zip(seed_rows, seed_cols):
+		if visited[sr, sc]:
+			continue
+		if not unassigned_mask[sr, sc]:
+			visited[sr, sc] = True
+			continue
+
+		next_junction_id += 1
+		cluster_id = next_junction_id
+		cluster_count = 0
+		q: deque[Tuple[int, int]] = deque([(int(sr), int(sc))])
+		visited[sr, sc] = True
+
+		while q:
+			r, c = q.popleft()
+			assigned_junction[r, c] = cluster_id
+			cluster_count += 1
+
+			for dr, dc in neighbors:
+				nr, nc = r + dr, c + dc
+				if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
+					continue
+				if visited[nr, nc] or not unassigned_mask[nr, nc]:
+					continue
+				visited[nr, nc] = True
+				q.append((nr, nc))
+
+		cluster_sizes[cluster_id] = cluster_count
+
+	return cluster_sizes
+
+
 def stage_4_assign_pra(
 	pra_path: Path,
 	best_junction_id: np.ndarray,
@@ -449,6 +504,12 @@ def stage_4_assign_pra(
 
 	assigned_junction[pra_mask] = best_junction_id[pra_mask]
 	assigned_order[pra_mask] = min_order[pra_mask]
+	max_existing_jid = max((int(j["junction_id"]) for j in junctions), default=0)
+	synthetic_cluster_sizes = assign_unassigned_pra_clusters_8conn(
+		pra_mask=pra_mask,
+		assigned_junction=assigned_junction,
+		starting_junction_id=max_existing_jid,
+	)
 
 	write_raster(out_dir / "pra_assigned_junction.tif", assigned_junction, base_profile, nodata=0)
 	write_raster(out_dir / "pra_assigned_strahler_order.tif", assigned_order, base_profile, nodata=0)
@@ -472,12 +533,18 @@ def stage_4_assign_pra(
 			jid = int(jid)
 			if jid == 0:
 				continue
-			j = row_lookup[jid]
+			j = row_lookup.get(jid)
+			if j is not None:
+				strahler_order = int(j["strahler_order"])
+				drainage_cells = int(drainage_area_size.get(jid, 0))
+			else:
+				strahler_order = 0
+				drainage_cells = int(synthetic_cluster_sizes.get(jid, cnt))
 			writer.writerow(
 				{
 					"junction_id": jid,
-					"strahler_order": int(j["strahler_order"]),
-					"drainage_area_cells": int(drainage_area_size.get(jid, 0)),
+					"strahler_order": strahler_order,
+					"drainage_area_cells": drainage_cells,
 					"pra_cells_assigned": int(cnt),
 				}
 			)
