@@ -9,6 +9,7 @@ Execution order (current MVP):
 5) Watershed subdivision + PRA split (GRASS)
 6) Run Flow-Py once per `pra_basin_*.tif`
 7) Post-process Flow-Py outputs to one GeoJSON
+8) Compute `exposure_zdelta_cellcount.tif` for each new Flow-Py `res_*`
 
 Each step writes its own folder under `outputs/` so results can be reviewed
 individually.
@@ -25,6 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from PostProcess_FlowPY.overhead_exposure import compute_overhead_exposure_from_files
 from PREPROCESSING.preprocess import align_forest_to_dem, fill_dem_simple, normalize_forest_for_flowpy
 
 
@@ -399,6 +401,22 @@ def _create_flowpy_exposure_layer(flowpy_res_dir: Path) -> Optional[Path]:
 	return None
 
 
+def _create_flowpy_zdelta_cellcount_exposure_layer(flowpy_res_dir: Path) -> Optional[Path]:
+	"""Create exposure_zdelta_cellcount.tif from cell_counts + z_delta outputs."""
+	cell_counts_path = flowpy_res_dir / "cell_counts.tif"
+	z_delta_path = flowpy_res_dir / "z_delta.tif"
+	out_path = flowpy_res_dir / "exposure_zdelta_cellcount.tif"
+
+	if not cell_counts_path.exists() or not z_delta_path.exists():
+		return None
+
+	return compute_overhead_exposure_from_files(
+		cell_count_path=cell_counts_path,
+		z_delta_path=z_delta_path,
+		output_path=out_path,
+	)
+
+
 def step_06_flowpy_per_basin(
 	dem_path: Path,
 	watershed_out_dir: Path,
@@ -468,13 +486,16 @@ def step_06_flowpy_per_basin(
 			exposure_path = _create_flowpy_exposure_layer(flowpy_res_dir)
 			if exposure_path is not None:
 				print(f"        exposure: {exposure_path.name}")
+			exposure_zdelta_cellcount_path = _create_flowpy_zdelta_cellcount_exposure_layer(flowpy_res_dir)
+			if exposure_zdelta_cellcount_path is not None:
+				print(f"        exposure_zdelta_cellcount: {exposure_zdelta_cellcount_path.name}")
 		created_run_dirs.append(run_dir)
 
 	return created_run_dirs
 
 
 def parse_args() -> argparse.Namespace:
-	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-7).")
+	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-8).")
 	parser.add_argument("--dem", default="inputs/DEM_BOW_SUMMIT.tif", help="Path to input DEM (GeoTIFF)")
 	parser.add_argument("--forest", default="inputs/FOREST_BOW_SUMMIT.tif", help="Path to forest density raster (GeoTIFF)")
 	parser.add_argument(
@@ -501,9 +522,9 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--until-n",
 		type=int,
-		choices=range(1, 8),
+		choices=range(1, 9),
 		default=None,
-		help="Run pipeline from step 1 up to step N (N in 1..7)",
+		help="Run pipeline from step 1 up to step N (N in 1..8)",
 	)
 
 	# PRA parameters (keep defaults aligned with script docstring)
@@ -540,10 +561,10 @@ def parse_args() -> argparse.Namespace:
 		default="Flow-py_Autoates_Editat/FlowPy_detrainment",
 		help="Path to Flow-Py code directory containing main.py",
 	)
-	parser.add_argument("--flowpy-alpha", type=int, default=25)
+	parser.add_argument("--flowpy-alpha", type=int, default=22)
 	parser.add_argument("--flowpy-exponent", type=int, default=8)
 	parser.add_argument("--flowpy-flux", type=float, default=0.003)
-	parser.add_argument("--flowpy-max-z", type=float, default=270) #default dem_gran 270
+	parser.add_argument("--flowpy-max-z", type=float, default=8000) #default ESTANDARD 270
 	parser.add_argument(
 		"--flowpy-infra",
 		default=None,
@@ -715,7 +736,7 @@ def main() -> None:
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
-	print("[7/7] Post-processing Flow-Py outputs...")
+	print("[7] Post-processing Flow-Py outputs...")
 	postprocess_geojson = step_07_postprocess_flowpy(
 		flowpy_out_dir=out_06,
 		out_dir=out_07,
@@ -724,6 +745,12 @@ def main() -> None:
 	print(f"        postprocess: {postprocess_geojson.name}")
 	if until_n == 7:
 		print("Stopped at step 7 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
+
+	print("[8] Overhead exposure (z_delta + cell_count) generated per new Flow-Py result.")
+	if until_n == 8:
+		print("Stopped at step 8 (--until-n).")
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
