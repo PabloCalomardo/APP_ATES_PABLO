@@ -4,7 +4,7 @@ Pipeline en Python per generar Potential Release Areas (PRA) i productes derivat
 
 ## Que fa (estat actual)
 
-El pipeline principal ([main.py](main.py)) executa 9 passos:
+El pipeline principal ([main.py](main.py)) executa 10 passos:
 
 1. Validacio d'inputs
    - Comprova que existeixen DEM i forest.
@@ -45,6 +45,16 @@ El pipeline principal ([main.py](main.py)) executa 9 passos:
    - Sortida: `outputs/SlopeandForest_Classification/SlopeandForest_Classification.tif`.
    - Implementat a [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py).
 
+10. Landforms per curvatura a multiples escales (nou modul)
+   - Calcula landforms amb curvatura de perfil + curvatura de pla/tangencial.
+   - Genera 3 capes amb diferents veinatges: 3x3, 6x6 i 12x12.
+   - Per cada capa també genera un fitxer QML amb la simbologia de classes 1..9.
+   - Sortides a `outputs/Definitive_Layers/`:
+     - `Landforms_curvature_3x3.tif`
+     - `Landforms_curvature_6x6.tif`
+     - `Landforms_curvature_12x12.tif`
+   - Implementat a [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py).
+
 ## Moduls del projecte
 
 - [main.py](main.py): orquestrador principal (passos 1..9).
@@ -55,6 +65,7 @@ El pipeline principal ([main.py](main.py)) executa 9 passos:
 - [PostProcess_FlowPY/post_FlowPy.py](PostProcess_FlowPY/post_FlowPy.py): export GeoJSON d'allaus.
 - [PostProcess_FlowPY/overhead_exposure.py](PostProcess_FlowPY/overhead_exposure.py): capa d'exposicio z_delta + cell_count.
 - [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py): classes ATES de pendent+bosc.
+- [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py): landforms multiescala per curvatura (3x3, 6x6, 12x12).
 - [Flow-py_Autoates_Editat/FlowPy_detrainment/main.py](Flow-py_Autoates_Editat/FlowPy_detrainment/main.py): motor Flow-Py (invocat dinamicament).
 
 ## Estructura de carpetes
@@ -97,7 +108,7 @@ Des de l'arrel del projecte:
 python main.py
 ```
 
-Aixo executa el pipeline complet (1..9).
+Aixo executa el pipeline complet (1..10).
 
 ### 1) Pipeline complet
 
@@ -124,7 +135,7 @@ Nota: `--only-step6` i `--until-n` son incompatibles.
 python main.py --until-n N
 ```
 
-On `N` pot ser de `1` a `9`.
+On `N` pot ser de `1` a `10`.
 
 Exemples:
 
@@ -140,6 +151,9 @@ python main.py --until-n 7
 
 # passos 1..8
 python main.py --until-n 8
+
+# passos 1..10
+python main.py --until-n 10
 ```
 
 ### 4) Execucio amb parametres personalitzats
@@ -197,6 +211,11 @@ Classificacio ATES (pas 9):
 - `--ates-slope-sigma 1.0`
 - `--ates-forest-adjustment paper_pra`
 
+Landforms (pas 10):
+- `--landform-windows 3,6,12`
+- `--landform-curvature-threshold 1e-4`
+- `--landform-flat-gradient-eps 1e-10`
+
 ## Execucio de moduls per separat (opcional)
 
 PRA divisor:
@@ -229,6 +248,12 @@ Classificacio slope+forest:
 python PostProcess_FlowPY/SlopeandForest_Classification.py --help
 ```
 
+Landforms multiescala per curvatura:
+
+```bash
+python PostProcess_FlowPY/landforms_multiscale.py --help
+```
+
 ## Sortides principals
 
 - `outputs/Inputs/inputs.json`
@@ -242,6 +267,12 @@ python PostProcess_FlowPY/SlopeandForest_Classification.py --help
 - `outputs/Flow-Py/pra_basin_*/res_YYYYMMDD_HHMMSS/*`
 - `outputs/Avalanche_Shapes/avalanche_shapes.geojson`
 - `outputs/Definitive_Layers/Exposure_zdelta_cellcount_basinX.tif`
+- `outputs/Definitive_Layers/Landforms_curvature_3x3.tif`
+- `outputs/Definitive_Layers/Landforms_curvature_3x3.qml`
+- `outputs/Definitive_Layers/Landforms_curvature_6x6.tif`
+- `outputs/Definitive_Layers/Landforms_curvature_6x6.qml`
+- `outputs/Definitive_Layers/Landforms_curvature_12x12.tif`
+- `outputs/Definitive_Layers/Landforms_curvature_12x12.qml`
 - `outputs/SlopeandForest_Classification/SlopeandForest_Classification.tif`
 
 ## Notes

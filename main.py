@@ -11,6 +11,7 @@ Execution order (current MVP):
 7) Post-process Flow-Py outputs to one GeoJSON
 8) Compute `exposure_zdelta_cellcount.tif` for each new Flow-Py `res_*`
 9) Compute slope+forest ATES classes from DEM slope + forest density
+10) Compute multiscale curvature-based landforms from DEM (3x3, 6x6, 12x12)
 
 Each step writes its own folder under `outputs/` so results can be reviewed
 individually.
@@ -30,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PostProcess_FlowPY.overhead_exposure import compute_overhead_exposure_from_files
 from PREPROCESSING.preprocess import align_forest_to_dem, fill_dem_simple, normalize_forest_for_flowpy
 from PostProcess_FlowPY.SlopeandForest_Classification import run_slope_and_forest_classification
+from PostProcess_FlowPY.landforms_multiscale import run_landforms_multiscale
 
 
 def _abs_path_from_app(path_str: str) -> Path:
@@ -314,6 +316,24 @@ def step_09_slope_and_forest_classification(
 	)
 
 
+def step_10_landforms_multiscale(
+	dem_path: Path,
+	out_dir: Path,
+	landform_windows: str,
+	curvature_threshold: float,
+	flat_gradient_eps: float,
+) -> List[Path]:
+	"""Compute 9-class landforms from profile+plan curvature at multiple scales."""
+	_ensure_dir(out_dir)
+	return run_landforms_multiscale(
+		dem_path=dem_path,
+		out_dir=out_dir,
+		windows=landform_windows,
+		curvature_threshold=curvature_threshold,
+		flat_gradient_eps=flat_gradient_eps,
+	)
+
+
 def _load_flowpy_entrypoint(flowpy_dir: Path) -> Callable[[List[str], Dict[str, str]], None]:
 	"""Load Flow-Py terminal entrypoint without executing its __main__ block."""
 	flowpy_main = (flowpy_dir / "main.py").resolve()
@@ -528,7 +548,7 @@ def step_06_flowpy_per_basin(
 
 
 def parse_args() -> argparse.Namespace:
-	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-9).")
+	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-10).")
 	parser.add_argument("--dem", default="inputs/DEM_BOW_SUMMIT.tif", help="Path to input DEM (GeoTIFF)")
 	parser.add_argument("--forest", default="inputs/FOREST_BOW_SUMMIT.tif", help="Path to forest density raster (GeoTIFF)")
 	parser.add_argument(
@@ -555,9 +575,9 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--until-n",
 		type=int,
-		choices=range(1, 10),
+		choices=range(1, 11),
 		default=None,
-		help="Run pipeline from step 1 up to step N (N in 1..9)",
+		help="Run pipeline from step 1 up to step N (N in 1..10)",
 	)
 
 	# PRA parameters (keep defaults aligned with script docstring)
@@ -626,6 +646,26 @@ def parse_args() -> argparse.Namespace:
 			"paper_runout, legacy, or conservative (alias of paper_pra)."
 		),
 	)
+
+	# --- Landforms multiscale (step 10)
+	parser.add_argument(
+		"--landform-windows",
+		default="3,6,12",
+		help="Comma-separated neighborhood sizes for landform classification (default: 3,6,12)",
+	)
+	parser.add_argument(
+		"--landform-curvature-threshold",
+		type=float,
+		default=1e-4,
+		help="Absolute threshold for convex/even/concave separation in curvature (default: 1e-4)",
+	)
+	parser.add_argument(
+		"--landform-flat-gradient-eps",
+		type=float,
+		default=1e-10,
+		help="Minimum gradient^2 to compute curvature and avoid unstable flat areas",
+	)
+
 	args = parser.parse_args()
 	if args.only_step6 and args.until_n is not None:
 		parser.error("--only-step6 cannot be used together with --until-n")
@@ -829,6 +869,21 @@ def main() -> None:
 	print(f"        slope_forest_classification: {ates_path.name}")
 	if until_n == 9:
 		print("Stopped at step 9 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
+
+	print("[10] Computing multiscale curvature-based landforms...")
+	landform_outputs = step_10_landforms_multiscale(
+		dem_path=dem_filled,
+		out_dir=out_08,
+		landform_windows=args.landform_windows,
+		curvature_threshold=args.landform_curvature_threshold,
+		flat_gradient_eps=args.landform_flat_gradient_eps,
+	)
+	for landform_path in landform_outputs:
+		print(f"        landforms: {landform_path.name}")
+	if until_n == 10:
+		print("Stopped at step 10 (--until-n).")
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
