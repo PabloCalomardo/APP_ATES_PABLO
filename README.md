@@ -1,49 +1,67 @@
 # APP_ATES_PABLO
 
-Pipeline en Python per generar **Potential Release Areas (PRA)** i productes derivats a partir d’un **DEM** (i un raster de bosc), amb divisió per conques i exportació de capes per basin.
+Pipeline en Python per generar Potential Release Areas (PRA) i productes derivats a partir d'un DEM i un raster de bosc, amb divisio per conques, simulacio Flow-Py i postprocessos finals.
 
-## Què fa (estat actual)
+## Que fa (estat actual)
 
-Executa 6 passos consecutius:
+El pipeline principal ([main.py](main.py)) executa 9 passos:
 
-1. **Validació d’inputs**
-   - Comprova que existeixen els fitxers d’entrada.
-   - Escriu un manifest amb metadades a `outputs/Inputs/inputs.json`.
+1. Validacio d'inputs
+   - Comprova que existeixen DEM i forest.
+   - Escriu metadades a `outputs/Inputs/inputs.json`.
 
-2. **Preprocessat DEM (simple fill)**
-   - Omple `nodata` del DEM (si n’hi ha) amb un mètode senzill.
-   - Sortida: `outputs/Preprocess/dem_filled_simple.tif`.
+2. Preprocessat DEM i forest
+   - Omple nodata del DEM (`dem_filled_simple.tif`).
+   - Alinea el forest al DEM (`forest_aligned.tif`).
+   - Normalitza forest per Flow-Py (`FOREST_NORMALIZED.tif`, escala 0..1).
 
-3. **Càlcul de PRA (AutoATES)**
-   - Calcula `windshelter`, PRA continu i PRA binari.
-   - Sortides (a `outputs/PRA_AutoATES/`):
-     - `windshelter.tif`
-     - `PRA_continous.tif`
-     - `PRA_binary.tif`
-     - `log.txt`
+3. Calcul PRA (AutoATES)
+   - Genera `windshelter.tif`, `PRA_continous.tif`, `PRA_binary.tif`, `log.txt`.
 
-4. **Divisor de PRA (per conques / junctions) — WhiteboxTools**
-   - Subdivideix el PRA binari en funció de la xarxa de drenatge (Strahler + junctions).
-   - Sortida clau (a `outputs/PRA_Divisor/`):
-     - `pra_assigned_junction.tif`
+4. Divisor PRA (WhiteboxTools)
+   - Segmenta PRA binari per xarxa de drenatge.
+   - Sortida clau: `outputs/PRA_Divisor/pra_assigned_junction.tif`.
 
-5. **Watershed subdivision (GRASS) + split PRA per basin**
-  - Calcula conques (`basins.tif`) amb GRASS.
-   - Genera `pra_basin_*.tif`: un raster per basin que conté **IDs reclassificats 0..k-1** dins de cada basin (fons a `nodata`).
+5. Watershed subdivision (GRASS) + split per basin
+   - Calcula conques i exporta `pra_basin_*.tif`.
 
-6. **Flow-Py per basin (N execucions automàtiques)**
-  - Llegeix totes les capes `pra_basin_*.tif` de `outputs/Watershed_Subdivisions/`.
-  - Executa Flow-Py una vegada per capa, usant com a DEM d'entrada el DEM postprocessat (`outputs/Preprocess/dem_filled_simple.tif`).
-  - Genera també `exposure.tif` dins de cada carpeta `res_*` del Flow-Py.
-    - Si existeix `backcalculation.tif`, `exposure.tif` es deriva d'aquesta capa.
-    - Si no, es crea com a màscara binària de `cell_counts.tif` (`>0`).
-  - Desa les sortides a `outputs/Flow-Py/`, amb una carpeta pròpia per cada basin (`pra_basin_0/`, `pra_basin_1/`, ...).
+6. Flow-Py per basin (N execucions automatiques)
+   - Executa Flow-Py per cada `pra_basin_*.tif`.
+   - Per cada resultat `res_*`, crea `exposure.tif`:
+     - prioritat 1: copia `backcalculation.tif` si existeix,
+     - prioritat 2: mascara binaria de `cell_counts.tif` (`>0`).
+
+7. Postprocess Flow-Py a GeoJSON unic
+   - Exporta poligons d'allaus des de `source_ids_bitmask.tif`.
+   - Sortida: `outputs/Avalanche_Shapes/avalanche_shapes.geojson`.
+
+8. Overhead exposure (nou modul)
+   - Per cada `res_*`, combina `cell_counts.tif` i `z_delta.tif`.
+   - Escriu a `outputs/Definitive_Layers/Exposure_zdelta_cellcount_basinX.tif`.
+   - Implementat a [PostProcess_FlowPY/overhead_exposure.py](PostProcess_FlowPY/overhead_exposure.py).
+
+9. Classificacio ATES per pendent + bosc (nou modul)
+   - Calcula classes ATES finals des de DEM + PCC forestal.
+   - Sortida: `outputs/SlopeandForest_Classification/SlopeandForest_Classification.tif`.
+   - Implementat a [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py).
+
+## Moduls del projecte
+
+- [main.py](main.py): orquestrador principal (passos 1..9).
+- [PREPROCESSING/preprocess.py](PREPROCESSING/preprocess.py): preprocessat DEM/forest.
+- [PRAs/PRA_AutoATES-v2.0.py](PRAs/PRA_AutoATES-v2.0.py): calcul PRA.
+- [PRAs/PRA_Divisor.py](PRAs/PRA_Divisor.py): divisio PRA per drenatge.
+- [PRAs/PRA_Watershed_Subdivision.py](PRAs/PRA_Watershed_Subdivision.py): conques GRASS i split per basin.
+- [PostProcess_FlowPY/post_FlowPy.py](PostProcess_FlowPY/post_FlowPy.py): export GeoJSON d'allaus.
+- [PostProcess_FlowPY/overhead_exposure.py](PostProcess_FlowPY/overhead_exposure.py): capa d'exposicio z_delta + cell_count.
+- [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py): classes ATES de pendent+bosc.
+- [Flow-py_Autoates_Editat/FlowPy_detrainment/main.py](Flow-py_Autoates_Editat/FlowPy_detrainment/main.py): motor Flow-Py (invocat dinamicament).
 
 ## Estructura de carpetes
 
 - `inputs/`
-  - `DEM.tif` (obligatori)
-  - `FOREST.tif` (requerit pel pipeline actual; es valida sempre a l’inici)
+  - `DEM_BOW_SUMMIT.tif` (default)
+  - `FOREST_BOW_SUMMIT.tif` (default)
 
 - `outputs/`
   - `Inputs/`
@@ -52,156 +70,181 @@ Executa 6 passos consecutius:
   - `PRA_Divisor/`
   - `Watershed_Subdivisions/`
   - `Flow-Py/`
+  - `Avalanche_Shapes/`
+  - `Definitive_Layers/`
+  - `SlopeandForest_Classification/`
 
 ## Requisits
 
 ### Programari extern
 
-- **QGIS amb GRASS** (el pipeline crida GRASS via el `grass84.bat` de QGIS).
-  - Per defecte s’utilitza:
-    - `C:\Program Files\QGIS 3.40.13\bin\grass84.bat`
+- QGIS amb GRASS (default: `C:\Program Files\QGIS 3.40.13\bin\grass84.bat`).
 
 ### Python
 
-- Python 3.x (recomanat: la mateixa versió que tens a `.venv`).
-- Paquets típics utilitzats:
-  - `rasterio`, `numpy`
-  - `whitebox` (WhiteboxTools)
-  - `scikit-image` (pot ser necessari com a fallback dins del mòdul PRA)
+- Python 3.x (idealment el `.venv` del projecte).
+- Dependencias habituals:
+  - `numpy`, `rasterio`
+  - `whitebox`
+  - `scikit-image`
+  - `scipy` (pas 9: filtres gaussians i finestres)
 
-Nota: hi ha un fitxer de dependències a `Flow-py_Autoates_Editat/FlowPy_detrainment/requirements.txt` (encoding no estàndard). Si ja tens `.venv` configurat i el pipeline et funciona, no cal reinstal·lar res.
+## Maneres d'executar el projecte
 
-## Com executar el pipeline
-
-Des de l’arrel del projecte (on hi ha `main.py`):
+Des de l'arrel del projecte:
 
 ```bash
 python main.py
 ```
 
-Per executar **només el pas 6 (Flow-Py)** amb resultats ja calculats (sense repetir passos 1-5):
+Aixo executa el pipeline complet (1..9).
+
+### 1) Pipeline complet
+
+```bash
+python main.py
+```
+
+### 2) Nomes pas 6 (Flow-Py)
 
 ```bash
 python main.py --only-step6
 ```
 
-Per executar fins a un pas concret (de l'1 al 7), fes servir `--until-n`.
-Per exemple, per executar només els passos 1, 2 i 3:
-
-```bash
-python main.py --until-n 3
-```
-
-Altres exemples:
-
-```bash
-# Executa passos 1..5
-python main.py --until-n 5
-
-# Executa passos 1..6 (sense postprocess final)
-python main.py --until-n 6
-```
-
-Nota: `--only-step6` i `--until-n` són incompatibles i no es poden usar alhora.
-
-Prerequisits per `--only-step6`:
+Prerequisits de `--only-step6`:
 - `outputs/Preprocess/dem_filled_simple.tif`
 - `outputs/Watershed_Subdivisions/pra_basin_*.tif`
+- Si s'ha passat `--forest`, tambe `outputs/Preprocess/FOREST_NORMALIZED.tif`
 
-Això assumeix els defaults:
+Nota: `--only-step6` i `--until-n` son incompatibles.
 
-- Inputs
-  - `--dem inputs/DEM.tif`
-  - `--forest inputs/FOREST.tif`
-  - `--forest-type stems`
-  - `--outputs-dir outputs`
+### 3) Executar fins a un pas concret
 
-- Paràmetres PRA (AutoATES)
-  - `--radius 6`
-  - `--prob 0.5`
-  - `--winddir 0`
-  - `--windtol 180`
-  - `--pra-thd 0.15`
-  - `--sf 3`
+```bash
+python main.py --until-n N
+```
 
-- Paràmetres PRA_Divisor
-  - `--divisor-stream-threshold 210`
-  - `--divisor-channel-init-exponent 1`
-  - `--divisor-channel-min-slope 1e-4`
+On `N` pot ser de `1` a `9`.
 
-- Paràmetres Watershed (GRASS)
-  - `--watershed-threshold 12000`
-  - `--watershed-memory 500`
-  - `--grass-exe "C:\\Program Files\\QGIS 3.40.13\\bin\\grass84.bat"`
-  - `--grass-epsg 25833`
-  - `--grass-db grassdata`
-  - `--grass-location watershed_project`
-  - `--grass-mapset NOUDIRECTORIDEMAPES`
+Exemples:
 
-### Exemple amb overrides
+```bash
+# passos 1..3
+python main.py --until-n 3
+
+# passos 1..6
+python main.py --until-n 6
+
+# passos 1..7
+python main.py --until-n 7
+
+# passos 1..8
+python main.py --until-n 8
+```
+
+### 4) Execucio amb parametres personalitzats
 
 ```bash
 python main.py \
   --outputs-dir outputs \
   --watershed-threshold 15000 \
   --watershed-memory 2000 \
-  --divisor-stream-threshold 300
+  --divisor-stream-threshold 300 \
+  --flowpy-alpha 22 \
+  --flowpy-max-z 8000
 ```
 
-## Sortides principals
+## Defaults actuals importants
 
-- `outputs/Preprocess/dem_filled_simple.tif`
-- `outputs/Preprocess/FOREST_NORMALIZED.tif`
-- `outputs/PRA_AutoATES/PRA_binary.tif`
-- `outputs/PRA_Divisor/pra_assigned_junction.tif`
-- `outputs/Watershed_Subdivisions/basins.tif`
-- `outputs/Watershed_Subdivisions/pra_basin_0.tif`, `pra_basin_1.tif`, ...
-- `outputs/Flow-Py/pra_basin_0/res_YYYYMMDD_HHMMSS/*`
-- `outputs/Flow-Py/pra_basin_1/res_YYYYMMDD_HHMMSS/*`
-- ...
+Inputs:
+- `--dem inputs/DEM_BOW_SUMMIT.tif`
+- `--forest inputs/FOREST_BOW_SUMMIT.tif`
+- `--forest-type pcc`
+- `--outputs-dir outputs`
 
-En cada `res_*` del Flow-Py tindràs, a més de les capes estàndard, una capa `exposure.tif`.
+PRA (pas 3):
+- `--radius 6`
+- `--prob 0.6`
+- `--winddir 0`
+- `--windtol 180`
+- `--pra-thd 0.15`
+- `--sf 3`
 
-## Paràmetres nous (pas 6: Flow-Py)
+PRA_Divisor (pas 4):
+- `--divisor-stream-threshold 850`
+- `--divisor-channel-init-exponent 0`
+- `--divisor-channel-min-slope 0.005`
 
-- `--flowpy-dir` (default: `Flow-py_Autoates_Editat/FlowPy_detrainment`)
-- `--flowpy-alpha` (default: `25`)
-- `--flowpy-exponent` (default: `8`)
-- `--flowpy-flux` (default: `0.003`)
-- `--flowpy-max-z` (default: `8848`)
+Watershed (pas 5):
+- `--watershed-threshold 12000`
+- `--watershed-memory 500`
+- `--grass-exe C:\Program Files\QGIS 3.40.13\bin\grass84.bat`
+- `--grass-epsg` (si no es passa, s'infereix del DEM preprocessat)
+- `--grass-db grassdata`
+- `--grass-location watershed_project`
+- `--grass-mapset NOUDIRECTORIDEMAPES`
+
+Flow-Py (pas 6):
+- `--flowpy-dir Flow-py_Autoates_Editat/FlowPy_detrainment`
+- `--flowpy-alpha 22`
+- `--flowpy-exponent 8`
+- `--flowpy-flux 0.003`
+- `--flowpy-max-z 8000`
 - `--flowpy-infra` (opcional)
-- `--only-step6` (executa exclusivament el pas 6)
-- `--until-n` (executa des del pas 1 fins al pas N, amb N entre 1 i 7)
 
-Nota: el pas de preprocess genera automàticament `outputs/Preprocess/FOREST_NORMALIZED.tif` (escala 0..1) i és la capa forest que usa Flow-Py.
+Classificacio ATES (pas 9):
+- `--ates-forest-window 5`
+- `--ates-slope-sigma 1.0`
+- `--ates-forest-adjustment paper_pra`
 
-## Execució dels scripts per separat (opcional)
+## Execucio de moduls per separat (opcional)
 
-- PRA divisor:
+PRA divisor:
 
 ```bash
 python PRAs/PRA_Divisor.py --help
 ```
 
-- Watershed subdivision + split PRA per basin:
+Watershed subdivision:
 
 ```bash
 python PRAs/PRA_Watershed_Subdivision.py --help
 ```
 
-- Postprocess de Flow-Py (formes d'allau a partir de `source_ids_bitmask.tif`):
+Postprocess Flow-Py (GeoJSON d'allaus):
 
 ```bash
-python PostProcess_FlowPY/post_FlowPy.py
+python PostProcess_FlowPY/post_FlowPy.py --help
 ```
 
-Resultat per cada `res_*` de `outputs/Flow-Py/*`:
-- `outputs/Avalanche_Shapes/avalanche_shapes.geojson`
+Overhead exposure (z_delta + cell_count):
 
-Aquest GeoJSON únic conté només:
-- `feature_type=avalanche`: polígons de cada allau individual (`avalanche_id`)
+```bash
+python PostProcess_FlowPY/overhead_exposure.py --help
+```
+
+Classificacio slope+forest:
+
+```bash
+python PostProcess_FlowPY/SlopeandForest_Classification.py --help
+```
+
+## Sortides principals
+
+- `outputs/Inputs/inputs.json`
+- `outputs/Preprocess/dem_filled_simple.tif`
+- `outputs/Preprocess/forest_aligned.tif`
+- `outputs/Preprocess/FOREST_NORMALIZED.tif`
+- `outputs/PRA_AutoATES/PRA_binary.tif`
+- `outputs/PRA_Divisor/pra_assigned_junction.tif`
+- `outputs/Watershed_Subdivisions/basins.tif`
+- `outputs/Watershed_Subdivisions/pra_basin_*.tif`
+- `outputs/Flow-Py/pra_basin_*/res_YYYYMMDD_HHMMSS/*`
+- `outputs/Avalanche_Shapes/avalanche_shapes.geojson`
+- `outputs/Definitive_Layers/Exposure_zdelta_cellcount_basinX.tif`
+- `outputs/SlopeandForest_Classification/SlopeandForest_Classification.tif`
 
 ## Notes
 
-- El pipeline està pensat per revisar resultats pas a pas (cada pas escriu a la seva carpeta dins `outputs/`).
-- Si canvies el path de QGIS/GRASS, fes servir `--grass-exe`.
+- El pipeline esta pensat per revisar resultats pas a pas (carpetes separades per modul).
+- Si canvies la instal.lacio de QGIS/GRASS, ajusta `--grass-exe`.
