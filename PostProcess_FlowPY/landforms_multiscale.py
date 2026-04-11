@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compute curvature-based landforms for multiple neighborhood sizes.
+"""Compute curvature-based landforms and entropy for multiple neighborhood sizes.
 
 The output classes follow the 9-class layout from profile (rows) and plan/tangential
 (columns) curvature signs:
@@ -11,13 +11,18 @@ The output classes follow the 9-class layout from profile (rows) and plan/tangen
     concave       9       6       3
 
 Class 0 is reserved for nodata / invalid cells.
+
+Current default workflow:
+- compute landforms for all windows from 5x5 to 30x30,
+- save only multiples of 5 (5,10,15,20,25,30) in Definitive_Layers/2_Landforms,
+- save entropy raster in [0, 1] from the per-cell class sequence.
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence
 
 import numpy as np
 import rasterio
@@ -257,6 +262,16 @@ def _write_landform_qml_for_raster(raster_path: Path) -> Path:
     return qml_path
 
 
+def _write_entropy_raster(path: Path, data: np.ndarray, profile_ref: dict) -> Path:
+    out_profile = profile_ref.copy()
+    out_profile.update(dtype="float32", count=1, nodata=np.nan, compress="deflate")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(path, "w", **out_profile) as dst:
+        dst.write(data.astype(np.float32, copy=False), 1)
+    return path
+
+
 def _parse_windows(values: Sequence[int] | str) -> List[int]:
     if isinstance(values, str):
         parts = [p.strip() for p in values.split(",") if p.strip()]
@@ -272,15 +287,62 @@ def _parse_windows(values: Sequence[int] | str) -> List[int]:
     return parsed
 
 
+def _default_windows_5_to_30() -> List[int]:
+    return list(range(5, 31))
+
+
+def _normalized_entropy_from_landforms(cube: np.ndarray, valid_mask: np.ndarray) -> np.ndarray:
+    """Return per-cell normalized Shannon entropy in [0, 1].
+
+    `cube` shape is (n_scales, rows, cols) with landform classes in [0..9], where 0 is nodata.
+    Entropy uses class frequencies over classes 1..9 and is normalized by log(min(9, n_scales)).
+    """
+    if cube.ndim != 3:
+        raise ValueError("cube must be 3D: (n_scales, rows, cols)")
+
+    n_scales = int(cube.shape[0])
+    if n_scales < 1:
+        raise ValueError("At least one scale is required to compute entropy")
+
+    rows, cols = cube.shape[1], cube.shape[2]
+    entropy = np.full((rows, cols), np.nan, dtype=np.float32)
+
+    core = valid_mask
+    if not np.any(core):
+        return entropy
+
+    counts = np.zeros((9, rows, cols), dtype=np.float32)
+    for klass in range(1, 10):
+        counts[klass - 1] = np.sum(cube == klass, axis=0)
+
+    probs = counts / float(n_scales)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        h = -np.sum(np.where(probs > 0.0, probs * np.log(probs), 0.0), axis=0)
+
+    max_states = min(9, n_scales)
+    if max_states <= 1:
+        entropy[core] = 0.0
+        return entropy
+
+    hmax = float(np.log(max_states))
+    h_norm = h / hmax
+    h_norm = np.clip(h_norm, 0.0, 1.0)
+    entropy[core] = h_norm[core].astype(np.float32, copy=False)
+    return entropy
+
+
 def run_landforms_multiscale(
     dem_path: str | Path,
     out_dir: str | Path,
-    windows: Sequence[int] = (3, 6, 12),
+    windows: Sequence[int] = tuple(range(5, 31)),
+    save_windows: Sequence[int] = (5, 10, 15, 20, 25, 30),
     curvature_threshold: float = 1e-4,
     flat_gradient_eps: float = 1e-10,
 ) -> List[Path]:
     dem, valid, dem_profile, dx, dy = _read_dem(dem_path)
     out_root = Path(out_dir).expanduser().resolve()
+    landforms_dir = out_root / "2_Landforms"
 
     # Fill invalid cells for convolution stability; invalids are masked out later.
     if np.any(valid):
@@ -289,8 +351,17 @@ def run_landforms_multiscale(
         fill_value = 0.0
     dem_filled = np.where(valid, dem, fill_value).astype(np.float32, copy=False)
 
+    parsed_windows = _parse_windows(windows)
+    save_windows_set = {int(w) for w in save_windows}
+    for w in save_windows_set:
+        if w not in parsed_windows:
+            raise ValueError(f"save_windows contains {w}, but it is not present in windows")
+
     written: List[Path] = []
-    for window in _parse_windows(windows):
+    landforms_per_window: List[np.ndarray] = []
+    valid_per_window: List[np.ndarray] = []
+
+    for window in parsed_windows:
         core_valid = _core_valid_mask(valid, window=window)
 
         if window == 3:
@@ -315,10 +386,22 @@ def run_landforms_multiscale(
             threshold=curvature_threshold,
         )
 
-        out_path = out_root / f"2_Landforms_curvature_{window}x{window}.tif"
-        raster_path = _write_landform_raster(path=out_path, data=landforms, profile_ref=dem_profile)
-        _write_landform_qml_for_raster(raster_path)
-        written.append(raster_path)
+        landforms_per_window.append(landforms)
+        valid_per_window.append(core_valid)
+
+        if window in save_windows_set:
+            out_path = landforms_dir / f"2_Landforms_curvature_{window}x{window}.tif"
+            raster_path = _write_landform_raster(path=out_path, data=landforms, profile_ref=dem_profile)
+            _write_landform_qml_for_raster(raster_path)
+            written.append(raster_path)
+
+    cube = np.stack(landforms_per_window, axis=0)
+    entropy_valid = np.logical_and.reduce(valid_per_window)
+    entropy = _normalized_entropy_from_landforms(cube=cube, valid_mask=entropy_valid)
+    min_w = min(parsed_windows)
+    max_w = max(parsed_windows)
+    entropy_path = out_root / f"2_Landforms_entropy_{min_w}to{max_w}.tif"
+    written.append(_write_entropy_raster(path=entropy_path, data=entropy, profile_ref=dem_profile))
 
     return written
 
@@ -327,8 +410,8 @@ def parse_args() -> argparse.Namespace:
     app_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
         description=(
-            "Compute multiscale (3x3, 6x6, 12x12 by default) landforms from DEM "
-            "using profile and plan/tangential curvature"
+            "Compute landforms from DEM across 5x5..30x30, save selected scales "
+            "and output normalized entropy [0..1]"
         )
     )
     parser.add_argument(
@@ -343,8 +426,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--windows",
-        default="3,6,12",
-        help="Comma-separated neighborhood sizes (default: 3,6,12)",
+        default=",".join(str(v) for v in _default_windows_5_to_30()),
+        help="Comma-separated neighborhood sizes used for entropy (default: 5,6,...,30)",
+    )
+    parser.add_argument(
+        "--save-windows",
+        default="5,10,15,20,25,30",
+        help="Comma-separated neighborhood sizes to save as landform rasters (default: 5,10,15,20,25,30)",
     )
     parser.add_argument(
         "--curvature-threshold",
@@ -367,6 +455,7 @@ def main() -> None:
         dem_path=args.dem,
         out_dir=args.out_dir,
         windows=args.windows,
+        save_windows=args.save_windows,
         curvature_threshold=args.curvature_threshold,
         flat_gradient_eps=args.flat_gradient_eps,
     )

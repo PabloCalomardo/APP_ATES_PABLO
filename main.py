@@ -11,7 +11,7 @@ Execution order (current MVP):
 7) Post-process Flow-Py outputs to one GeoJSON
 8) Compute `exposure_zdelta_cellcount.tif` for each new Flow-Py `res_*`
 9) Compute slope+forest ATES classes from DEM slope + forest density
-10) Compute multiscale curvature-based landforms from DEM (3x3, 6x6, 12x12)
+10) Compute multiscale curvature-based landforms from DEM (5x5..20x20) + entropy
 11) Compute terrain traps from DEM + forest + landforms + Flow-Py z_delta
 12) Compute start/propagating/ending zones per avalanche and basin from flux
 
@@ -715,8 +715,8 @@ def parse_args() -> argparse.Namespace:
 	# --- Landforms multiscale (step 10)
 	parser.add_argument(
 		"--landform-windows",
-		default="3,6,12",
-		help="Comma-separated neighborhood sizes for landform classification (default: 3,6,12)",
+		default=",".join(str(v) for v in range(5, 31)),
+		help="Comma-separated neighborhood sizes for entropy computation (default: 5,6,...,30)",
 	)
 	parser.add_argument(
 		"--landform-curvature-threshold",
@@ -989,7 +989,7 @@ def main() -> None:
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
-	print("[10] Computing multiscale curvature-based landforms...")
+	print("[10] Computing multiscale landforms (5..20) and per-cell entropy...")
 	landform_outputs = step_10_landforms_multiscale(
 		dem_path=dem_filled,
 		out_dir=out_08,

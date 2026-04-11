@@ -49,12 +49,20 @@ El pipeline principal ([main.py](main.py)) executa 12 passos:
 
 10. Landforms per curvatura a multiples escales (nou modul)
    - Calcula landforms amb curvatura de perfil + curvatura de pla/tangencial.
-   - Genera 3 capes amb diferents veinatges: 3x3, 6x6 i 12x12.
-   - Per cada capa també genera un fitxer QML amb la simbologia de classes 1..9.
-   - Sortides a `outputs/results_DDHHMM/Definitive_Layers/`:
-   - `2_Landforms_curvature_3x3.tif`
-   - `2_Landforms_curvature_6x6.tif`
-   - `2_Landforms_curvature_12x12.tif`
+   - Calcula internament les escales 5x5, 6x6, ..., 30x30 per analitzar la variabilitat multiescala.
+   - Desa nomes els multiples de 5 (5x5, 10x10, 15x15, 20x20, 25x25, 30x30) amb QML de classes 1..9.
+   - Les capes de landforms es guarden a `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/`.
+   - Amb la sequencia de classes per cel.la (5..30), calcula una capa d'entropia normalitzada 0..1:
+     - 0: classe estable entre escales
+     - 1: maxima variabilitat de classe entre escales
+   - Sortides principals:
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_5x5.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_10x10.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_15x15.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_20x20.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_25x25.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_30x30.tif`
+   - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_entropy_5to30.tif`
    - Implementat a [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py).
 
 11. Terrain traps (nou modul)
@@ -94,7 +102,7 @@ El pipeline principal ([main.py](main.py)) executa 12 passos:
 - [PostProcess_FlowPY/post_FlowPy.py](PostProcess_FlowPY/post_FlowPy.py): export GeoJSON d'allaus.
 - [PostProcess_FlowPY/overhead_exposure.py](PostProcess_FlowPY/overhead_exposure.py): capa d'exposicio z_delta + cell_count.
 - [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py): classes ATES de pendent+bosc.
-- [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py): landforms multiescala per curvatura (3x3, 6x6, 12x12).
+- [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py): landforms multiescala (5..30), export multiples de 5 a `2_Landforms/` i raster d'entropia 0..1.
 - [PostProcess_FlowPY/terrain_traps.py](PostProcess_FlowPY/terrain_traps.py): deteccio de terrain traps (trauma/enterrament) amb raster bitmask.
 - [PostProcess_FlowPY/start_propagating_ending_zones.py](PostProcess_FlowPY/start_propagating_ending_zones.py): zones inici/propagacio/frenada per allau i basin.
 - [Flow-py_Autoates_Editat/FlowPy_detrainment/main.py](Flow-py_Autoates_Editat/FlowPy_detrainment/main.py): motor Flow-Py (invocat dinamicament).
@@ -252,7 +260,7 @@ Classificacio ATES (pas 9):
 - `--ates-forest-adjustment paper_pra`
 
 Landforms (pas 10):
-- `--landform-windows 3,6,12`
+- `--landform-windows 5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30`
 - `--landform-curvature-threshold 1e-4`
 - `--landform-flat-gradient-eps 1e-10`
 
@@ -330,12 +338,19 @@ python PostProcess_FlowPY/start_propagating_ending_zones.py --help
 - `outputs/results_DDHHMM/Definitive_Layers/1_Slope_Classification_NoForest.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/1_SlopeandForest_Classification.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/BasinX/Exposure_zdelta_cellcount.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_3x3.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_3x3.qml`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_6x6.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_6x6.qml`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_12x12.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_curvature_12x12.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_5x5.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_5x5.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_10x10.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_10x10.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_15x15.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_15x15.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_20x20.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_20x20.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_25x25.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_25x25.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_30x30.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_30x30.qml`
+- `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_entropy_5to30.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_bitmask.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_bitmask.qml`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_trauma_amplifiers.tif`
