@@ -364,6 +364,17 @@ def step_11_terrain_traps(
 	forest_tree_threshold: float,
 	energy_trauma_threshold: float,
 	gully_energy_threshold: float,
+	gully_spi_m: float,
+	gully_spi_n: float,
+	gully_spi_threshold: Optional[float],
+	gully_spi_percentile: float,
+	gully_min_drainage_area_m2: float,
+	gully_min_slope_deg: float,
+	gully_max_slope_deg: float,
+	lake_max_slope_deg: float,
+	lake_tpi_threshold: float,
+	lake_max_spi_threshold: Optional[float],
+	lake_max_spi_percentile: float,
 ) -> List[Path]:
 	"""Detect terrain traps and write rasters in Definitive_Layers."""
 	_ensure_dir(definitive_layers_dir)
@@ -376,6 +387,17 @@ def step_11_terrain_traps(
 		forest_tree_threshold=forest_tree_threshold,
 		energy_trauma_threshold=energy_trauma_threshold,
 		gully_energy_threshold=gully_energy_threshold,
+		gully_spi_m=gully_spi_m,
+		gully_spi_n=gully_spi_n,
+		gully_spi_threshold=gully_spi_threshold,
+		gully_spi_percentile=gully_spi_percentile,
+		gully_min_drainage_area_m2=gully_min_drainage_area_m2,
+		gully_min_slope_deg=gully_min_slope_deg,
+		gully_max_slope_deg=gully_max_slope_deg,
+		lake_max_slope_deg=lake_max_slope_deg,
+		lake_tpi_threshold=lake_tpi_threshold,
+		lake_max_spi_threshold=lake_max_spi_threshold,
+		lake_max_spi_percentile=lake_max_spi_percentile,
 	)
 
 
@@ -747,8 +769,44 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--terrain-gully-energy-threshold",
 		type=float,
-		default=0.2,
+		default=0.22,
 		help="Normalized z_delta threshold used by gully detection",
+	)
+	parser.add_argument("--terrain-gully-spi-m", type=float, default=1.0, help="SPI exponent m in A^m*S^n")
+	parser.add_argument("--terrain-gully-spi-n", type=float, default=1.0, help="SPI exponent n in A^m*S^n")
+	parser.add_argument(
+		"--terrain-gully-spi-threshold",
+		type=float,
+		default=0.0,
+		help="Absolute SPI threshold for gullies (>0 enables absolute mode; 0 uses percentile)",
+	)
+	parser.add_argument(
+		"--terrain-gully-spi-percentile",
+		type=float,
+		default=88.0,
+		help="Percentile SPI threshold for gullies when absolute threshold is disabled",
+	)
+	parser.add_argument(
+		"--terrain-gully-min-drainage-area-m2",
+		type=float,
+		default=4000.0,
+		help="Minimum drainage area (m2) to consider a pixel as potential gully",
+	)
+	parser.add_argument("--terrain-gully-min-slope-deg", type=float, default=13.0)
+	parser.add_argument("--terrain-gully-max-slope-deg", type=float, default=48.0)
+	parser.add_argument("--terrain-lake-max-slope-deg", type=float, default=6.0)
+	parser.add_argument("--terrain-lake-tpi-threshold", type=float, default=-1.8)
+	parser.add_argument(
+		"--terrain-lake-max-spi-threshold",
+		type=float,
+		default=0.0,
+		help="Maximum SPI for lakes (>0 enables absolute mode; 0 uses percentile)",
+	)
+	parser.add_argument(
+		"--terrain-lake-max-spi-percentile",
+		type=float,
+		default=35.0,
+		help="Maximum SPI percentile used to suppress channelized creek pixels from lakes",
 	)
 
 	# --- Start/propagating/ending zones (step 12)
@@ -1004,10 +1062,12 @@ def main() -> None:
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
-	print("[11] Detecting terrain traps (trees, cliffs/rocks, gullies, benches, lakes/creeks)...")
+	print("[11] Detecting terrain traps (trees, cliffs, gullies, road cuts, lakes)...")
 	forest_for_terrain = forest_aligned if forest_aligned is not None else forest_path
 	if forest_for_terrain is None:
 		raise RuntimeError("Step 11 requires a forest raster (provide --forest).")
+	gully_spi_threshold = args.terrain_gully_spi_threshold if args.terrain_gully_spi_threshold > 0 else None
+	lake_max_spi_threshold = args.terrain_lake_max_spi_threshold if args.terrain_lake_max_spi_threshold > 0 else None
 	terrain_outputs = step_11_terrain_traps(
 		dem_path=dem_filled,
 		forest_path=forest_for_terrain,
@@ -1016,6 +1076,17 @@ def main() -> None:
 		forest_tree_threshold=args.terrain_forest_tree_threshold,
 		energy_trauma_threshold=args.terrain_energy_trauma_threshold,
 		gully_energy_threshold=args.terrain_gully_energy_threshold,
+		gully_spi_m=args.terrain_gully_spi_m,
+		gully_spi_n=args.terrain_gully_spi_n,
+		gully_spi_threshold=gully_spi_threshold,
+		gully_spi_percentile=args.terrain_gully_spi_percentile,
+		gully_min_drainage_area_m2=args.terrain_gully_min_drainage_area_m2,
+		gully_min_slope_deg=args.terrain_gully_min_slope_deg,
+		gully_max_slope_deg=args.terrain_gully_max_slope_deg,
+		lake_max_slope_deg=args.terrain_lake_max_slope_deg,
+		lake_tpi_threshold=args.terrain_lake_tpi_threshold,
+		lake_max_spi_threshold=lake_max_spi_threshold,
+		lake_max_spi_percentile=args.terrain_lake_max_spi_percentile,
 	)
 	for terrain_path in terrain_outputs:
 		print(f"        terrain_traps: {terrain_path.name}")

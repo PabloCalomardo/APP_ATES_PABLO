@@ -73,11 +73,21 @@ El pipeline principal ([main.py](main.py)) executa 12 passos:
           - `Cliffs / Rocks`
           - `Gullies`
           - `Road cuts / Benches`
-          - `Lakes / Creeks`
-      - Genera un raster bitmask i capes derivades de trauma/enterrament a:
-         - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_bitmask.tif`
-         - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_trauma_amplifiers.tif`
-         - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_burial_amplifiers.tif`
+          - `Lakes` (sense creeks/torrents)
+      - Genera 5 rasters independents + 2 bitmasks derivats:
+         - `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Trees.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Cliffs.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Gullies.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_RoadCuts.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Lakes.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_trauma_bitmask.tif`
+         - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_burial_bitmask.tif`
+      - Deteccio de `Gullies` basada en Stream Power Index (SPI) parametritzable:
+         - `SPI = A^m * S^n` (A = drainage area D8, S = pendent en gradient)
+      - A mes, per defecte es calculen i guarden 3 variants de gullies per comparacio:
+         - `3_Terrain_Traps_Gullies_conservative.tif`
+         - `3_Terrain_Traps_Gullies_balanced.tif`
+         - `3_Terrain_Traps_Gullies_aggressive.tif`
       - Implementat a [PostProcess_FlowPY/terrain_traps.py](PostProcess_FlowPY/terrain_traps.py).
 
 12. Zones d'inici, propagacio i frenada per allau (nou modul)
@@ -104,6 +114,7 @@ El pipeline principal ([main.py](main.py)) executa 12 passos:
 - [PostProcess_FlowPY/SlopeandForest_Classification.py](PostProcess_FlowPY/SlopeandForest_Classification.py): classes ATES de pendent+bosc.
 - [PostProcess_FlowPY/landforms_multiscale.py](PostProcess_FlowPY/landforms_multiscale.py): landforms multiescala (5..30), export multiples de 5 a `2_Landforms/` i raster d'entropia 0..1.
 - [PostProcess_FlowPY/terrain_traps.py](PostProcess_FlowPY/terrain_traps.py): deteccio de terrain traps (trauma/enterrament) amb raster bitmask.
+- [PostProcess_FlowPY/terrain_traps.py](PostProcess_FlowPY/terrain_traps.py): deteccio de terrain traps amb 5 rasters independents i bitmasks de trauma/enterrament.
 - [PostProcess_FlowPY/start_propagating_ending_zones.py](PostProcess_FlowPY/start_propagating_ending_zones.py): zones inici/propagacio/frenada per allau i basin.
 - [Flow-py_Autoates_Editat/FlowPy_detrainment/main.py](Flow-py_Autoates_Editat/FlowPy_detrainment/main.py): motor Flow-Py (invocat dinamicament).
 
@@ -351,11 +362,18 @@ python PostProcess_FlowPY/start_propagating_ending_zones.py --help
 - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_30x30.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms/2_Landforms_curvature_30x30.qml`
 - `outputs/results_DDHHMM/Definitive_Layers/2_Landforms_entropy_5to30.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_bitmask.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_bitmask.qml`
-- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_trauma_amplifiers.tif`
-- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_burial_amplifiers.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Trees.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Cliffs.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Gullies.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Gullies_conservative.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Gullies_balanced.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Gullies_aggressive.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_RoadCuts.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_TerrainTraps/3_Terrain_Traps_Lakes.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_trauma_bitmask.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_burial_bitmask.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_energy_proxy.tif`
+- `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_SPI_gullies.tif`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_legend.csv`
 - `outputs/results_DDHHMM/Definitive_Layers/3_Terrain_Traps_stats.csv`
 - `outputs/results_DDHHMM/Definitive_Layers/BasinX/Star_propagating_Ending_Zones/Ava_Y.tif`
