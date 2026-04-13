@@ -14,6 +14,7 @@ Execution order (current MVP):
 10) Compute multiscale curvature-based landforms from DEM (5x5..20x20) + entropy
 11) Compute terrain traps from DEM + forest + landforms + Flow-Py z_delta
 12) Compute start/propagating/ending zones per avalanche and basin from flux
+13) Compute continuous runout zone characteristics (0..1) from Flow-Py outputs
 
 Each step writes its own folder under `outputs/` so results can be reviewed
 individually.
@@ -37,6 +38,7 @@ from PostProcess_FlowPY.SlopeandForest_Classification import run_slope_and_fores
 from PostProcess_FlowPY.landforms_multiscale import run_landforms_multiscale
 from PostProcess_FlowPY.terrain_traps import detect_terrain_traps
 from PostProcess_FlowPY.start_propagating_ending_zones import run_for_all_basins as run_start_propagating_ending_zones
+from PostProcess_FlowPY.runout_zone_characteristics import run_runout_zone_characteristics
 
 
 def _abs_path_from_app(path_str: str) -> Path:
@@ -417,6 +419,28 @@ def step_12_start_propagating_ending_zones(
 	)
 
 
+def step_13_runout_zone_characteristics(
+	definitive_layers_dir: Path,
+	flowpy_out_dir: Path,
+	flux_min_threshold: float,
+	min_evidence_threshold: float,
+) -> List[Path]:
+	"""Compute continuous runout-zone difficulty axis (0..1)."""
+	_ensure_dir(definitive_layers_dir)
+	out_raster = definitive_layers_dir / "6_Runout_Zone_Characteristics.tif"
+	out_stats = definitive_layers_dir / "6_Runout_Zone_Characteristics_stats.csv"
+	out_legend = definitive_layers_dir / "6_Runout_Zone_Characteristics_legend.csv"
+	return run_runout_zone_characteristics(
+		definitive_layers_dir=definitive_layers_dir,
+		flowpy_root=flowpy_out_dir,
+		out_raster_path=out_raster,
+		out_stats_csv=out_stats,
+		out_legend_csv=out_legend,
+		flux_min_threshold=flux_min_threshold,
+		min_evidence_threshold=min_evidence_threshold,
+	)
+
+
 def _load_flowpy_entrypoint(flowpy_dir: Path) -> Callable[[List[str], Dict[str, str]], None]:
 	"""Load Flow-Py terminal entrypoint without executing its __main__ block."""
 	flowpy_main = (flowpy_dir / "main.py").resolve()
@@ -632,7 +656,7 @@ def step_06_flowpy_per_basin(
 
 
 def parse_args() -> argparse.Namespace:
-	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-12).")
+	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-13).")
 	parser.add_argument("--dem", default="inputs/DEM_BOW_SUMMIT.tif", help="Path to input DEM (GeoTIFF)")
 	parser.add_argument("--forest", default="inputs/FOREST_BOW_SUMMIT.tif", help="Path to forest density raster (GeoTIFF)")
 	parser.add_argument(
@@ -662,9 +686,9 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--until-n",
 		type=int,
-		choices=range(1, 13),
+		choices=range(1, 14),
 		default=None,
-		help="Run pipeline from step 1 up to step N (N in 1..12)",
+		help="Run pipeline from step 1 up to step N (N in 1..13)",
 	)
 
 	# PRA parameters (keep defaults aligned with script docstring)
@@ -821,6 +845,20 @@ def parse_args() -> argparse.Namespace:
 		type=float,
 		default=0.075,
 		help="Flux threshold for ending zone (flux < threshold)",
+	)
+
+	# --- Runout characteristics (step 13)
+	parser.add_argument(
+		"--runout-flux-min-threshold",
+		type=float,
+		default=0.01,
+		help="Minimum flux value to be considered active runout evidence",
+	)
+	parser.add_argument(
+		"--runout-min-evidence-threshold",
+		type=float,
+		default=0.03,
+		help="Minimum combined evidence score to keep runout cells",
 	)
 
 	args = parser.parse_args()
@@ -1106,6 +1144,20 @@ def main() -> None:
 		print(f"        zones: {zone_path}")
 	if until_n == 12:
 		print("Stopped at step 12 (--until-n).")
+		print(f"Outputs base dir: {outputs_dir}")
+		return
+
+	print("[13] Computing continuous runout-zone characteristics (0..1)...")
+	runout_outputs = step_13_runout_zone_characteristics(
+		definitive_layers_dir=out_08,
+		flowpy_out_dir=out_06,
+		flux_min_threshold=args.runout_flux_min_threshold,
+		min_evidence_threshold=args.runout_min_evidence_threshold,
+	)
+	for runout_path in runout_outputs:
+		print(f"        runout: {runout_path.name}")
+	if until_n == 13:
+		print("Stopped at step 13 (--until-n).")
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
