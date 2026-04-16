@@ -38,10 +38,11 @@ El pipeline principal ([main.py](main.py)) executa 14 passos:
 8. Overhead exposure (nou modul)
    - Per cada `res_*`, combina `cell_counts.tif` i `z_delta.tif` amb ponderacio configurable.
    - Formula: `exposure = w_cellcount * cellcount_norm + (1 - w_cellcount) * zdelta_norm`.
-   - Parametre: `--overhead-cellcount-weight` (rang `[0,1]`).
+    - Parametre: `--overhead-cellcount-weight` (rang `[0,1]` o valor especial `2`).
      - `1.0`: nomes Cellcount
      - `0.0`: nomes Zdelta
      - `0.1`: 10% Cellcount + 90% Zdelta
+       - `2`: maxim per cel.la entre les dues capes (`max(cellcount_norm, zdelta_norm)`)
    - Escriu a `outputs/results_DDHHMM/Definitive_Layers/BasinX/Exposure_zdelta_cellcount.tif`.
    - Implementat a [PostProcess_FlowPY/overhead_exposure.py](PostProcess_FlowPY/overhead_exposure.py).
 
@@ -247,8 +248,9 @@ python main.py \
 ```
 
 Per controlar com es calcula l'overhead exposure (pas 8), usa:
-- `--overhead-cellcount-weight <0..1>`
-- El pes de `z_delta` es calcula automaticament com `1 - overhead_cellcount_weight`.
+- `--overhead-cellcount-weight <0..1>` per mitjana ponderada.
+- `--overhead-cellcount-weight 2` per usar el maxim per cel.la entre capes normalitzades.
+- En mode ponderat, el pes de `z_delta` es calcula automaticament com `1 - overhead_cellcount_weight`.
 
 ### Tots els parametres personalitzables (`python main.py --help`)
 
@@ -299,7 +301,7 @@ Nota:
 - `--flowpy-exponent` (default: `8`)
 - `--flowpy-flux` (default: `0.003`)
 - `--flowpy-max-z` (default: `8000`)
-- `--overhead-cellcount-weight` (default: `0.5`; rang: `0..1`)
+- `--overhead-cellcount-weight` (default: `0.5`; rang: `0..1` o `2` per max mode)
 - `--flowpy-infra` (default: `None`; raster d'infraestructura opcional)
 
 #### Pas 9 - Classificacio slope + forest

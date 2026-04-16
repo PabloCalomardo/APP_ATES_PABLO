@@ -15,9 +15,9 @@ DEFAULT_CELLCOUNT_WEIGHT = 0.5
 
 def validate_cellcount_weight(cellcount_weight: float) -> float:
     weight = float(cellcount_weight)
-    if weight < 0.0 or weight > 1.0:
+    if (weight < 0.0 or weight > 1.0) and not np.isclose(weight, 2.0):
         raise ValueError(
-            f"Invalid cell_count weight: {cellcount_weight}. Expected range is [0, 1]."
+            f"Invalid cell_count weight: {cellcount_weight}. Expected [0, 1] or 2 (max mode)."
         )
     return weight
 
@@ -86,7 +86,11 @@ def compute_overhead_exposure(
     cellcount_weight: float = DEFAULT_CELLCOUNT_WEIGHT,
     output_nodata: float = DEFAULT_OUTPUT_NODATA,
 ) -> np.ndarray:
-    """Compute weighted overhead exposure from normalized cell_count and z_delta layers."""
+    """Compute overhead exposure from normalized cell_count and z_delta layers.
+
+    When cellcount_weight is 2, use max(cell_count_norm, z_delta_norm) per pixel.
+    Otherwise use weighted average: w*cell_count_norm + (1-w)*z_delta_norm.
+    """
     if cell_count is None or cell_count_valid is None:
         raise ValueError("cell_count raster is required")
     if z_delta is None or z_delta_valid is None:
@@ -96,19 +100,19 @@ def compute_overhead_exposure(
         raise ValueError("cell_count and z_delta arrays must have the same shape")
 
     w_cell = validate_cellcount_weight(cellcount_weight)
-    w_zdelta = 1.0 - w_cell
-    if np.isclose(w_cell + w_zdelta, 0.0):
-        raise ValueError("At least one layer weight must be greater than zero")
 
     out = np.full(cell_count.shape, output_nodata, dtype=np.float32)
 
     cell_count_scaled = minmax_scale_0_100(cell_count, cell_count_valid)
     z_delta_scaled = minmax_scale_0_100(z_delta, z_delta_valid)
     valid_both = cell_count_valid & z_delta_valid
-    out[valid_both] = (
-        (w_cell * cell_count_scaled[valid_both])
-        + (w_zdelta * z_delta_scaled[valid_both])
-    )
+
+    if np.isclose(w_cell, 2.0):
+        out[valid_both] = np.maximum(cell_count_scaled[valid_both], z_delta_scaled[valid_both])
+        return out
+
+    w_zdelta = 1.0 - w_cell
+    out[valid_both] = (w_cell * cell_count_scaled[valid_both]) + (w_zdelta * z_delta_scaled[valid_both])
     return out
 
 
@@ -164,7 +168,7 @@ def compute_overhead_exposure_from_files(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compute weighted overhead exposure from cell_count and z_delta.",
+        description="Compute overhead exposure from cell_count and z_delta.",
     )
     parser.add_argument("--cell-count", required=True, help="Path to cell_count raster")
     parser.add_argument("--z-delta", required=True, help="Path to z_delta raster")
@@ -173,7 +177,10 @@ def parse_args() -> argparse.Namespace:
         "--cellcount-weight",
         type=float,
         default=DEFAULT_CELLCOUNT_WEIGHT,
-        help="Weight for normalized cell_count in final exposure [0..1] (default: 0.5)",
+        help=(
+            "Weight for normalized cell_count in final exposure [0..1] "
+            "(default: 0.5). Use 2 for max mode: max(cell_count_norm, z_delta_norm)."
+        ),
     )
     parser.add_argument(
         "--nodata",

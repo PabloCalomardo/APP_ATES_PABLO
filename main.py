@@ -875,7 +875,11 @@ def parse_args() -> argparse.Namespace:
 		"--overhead-cellcount-weight",
 		type=float,
 		default=0.5,
-		help="Weight for normalized cell_count in step 8 [0..1]. z_delta weight is (1 - value).",
+		help=(
+			"Weight for normalized cell_count in step 8 [0..1]. "
+			"z_delta weight is (1 - value). Use 2 for max mode "
+			"max(cell_count_norm, z_delta_norm)."
+		),
 	)
 	parser.add_argument(
 		"--flowpy-infra",
@@ -1027,8 +1031,8 @@ def parse_args() -> argparse.Namespace:
 		parser.error("--only-step6 cannot be used together with --until-n")
 	if args.zones_start_threshold <= args.zones_ending_threshold:
 		parser.error("--zones-start-threshold must be greater than --zones-ending-threshold")
-	if args.overhead_cellcount_weight < 0.0 or args.overhead_cellcount_weight > 1.0:
-		parser.error("--overhead-cellcount-weight must be in [0, 1]")
+	if (args.overhead_cellcount_weight < 0.0 or args.overhead_cellcount_weight > 1.0) and args.overhead_cellcount_weight != 2.0:
+		parser.error("--overhead-cellcount-weight must be in [0, 1] or 2 (max mode)")
 	return args
 
 
@@ -1225,11 +1229,14 @@ def main() -> None:
 		print(f"Outputs base dir: {outputs_dir}")
 		return
 
-	print(
-		"[8] Overhead exposure generated per new Flow-Py result "
-		f"(cellcount_weight={args.overhead_cellcount_weight:.3f}, "
-		f"zdelta_weight={1.0 - args.overhead_cellcount_weight:.3f})."
-	)
+	if args.overhead_cellcount_weight == 2.0:
+		print("[8] Overhead exposure generated per new Flow-Py result (mode=max(cell_count_norm, z_delta_norm)).")
+	else:
+		print(
+			"[8] Overhead exposure generated per new Flow-Py result "
+			f"(cellcount_weight={args.overhead_cellcount_weight:.3f}, "
+			f"zdelta_weight={1.0 - args.overhead_cellcount_weight:.3f})."
+		)
 	if until_n == 8:
 		print("Stopped at step 8 (--until-n).")
 		print(f"Outputs base dir: {outputs_dir}")
