@@ -224,65 +224,131 @@ python main.py \
   --watershed-memory 2000 \
   --divisor-stream-threshold 300 \
   --flowpy-alpha 22 \
-  --flowpy-max-z 8000
+   --flowpy-max-z 8000 \
+   --overhead-exposure-mode zdelta_cellcount
 ```
 
-## Defaults actuals importants
+Per triar com es calcula l'overhead exposure (pas 8), afegeix aquest parametre:
+- `--overhead-exposure-mode zdelta_cellcount` (combinacio de Cellcount + Zdelta, mode actual)
+- `--overhead-exposure-mode cellcount` (nomes Cellcount)
+- `--overhead-exposure-mode zdelta` (nomes Zdelta)
 
-Inputs:
-- `--dem inputs/DEM_BOW_SUMMIT.tif`
-- `--forest inputs/FOREST_BOW_SUMMIT.tif`
-- `--forest-type pcc`
-- `--outputs-dir` (opcional; per defecte es crea `outputs/results_DDHHMM`)
+### Tots els parametres personalitzables (`python main.py --help`)
 
-PRA (pas 3):
-- `--radius 6`
-- `--prob 0.6`
-- `--winddir 0`
-- `--windtol 180`
-- `--pra-thd 0.15`
-- `--sf 3`
+Nota:
+- `--only-step6` i `--until-n` son incompatibles.
+- `--zones-start-threshold` ha de ser mes gran que `--zones-ending-threshold`.
 
-PRA_Divisor (pas 4):
-- `--divisor-stream-threshold 850`
-- `--divisor-channel-init-exponent 0`
-- `--divisor-channel-min-slope 0.005`
+#### Control general d'execucio
 
-Watershed (pas 5):
-- `--watershed-threshold 12000`
-- `--watershed-memory 500`
-- `--grass-exe C:\Program Files\QGIS 3.40.13\bin\grass84.bat`
-- `--grass-epsg` (si no es passa, s'infereix del DEM preprocessat)
-- `--grass-db grassdata`
-- `--grass-location watershed_project`
-- `--grass-mapset NOUDIRECTORIDEMAPES`
+- `--dem` (default: `inputs/DEM_BOW_SUMMIT.tif`)
+- `--forest` (default: `inputs/FOREST_BOW_SUMMIT.tif`)
+- `--forest-crs` (default: `None`; CRS opcional si el raster no porta metadades)
+- `--forest-type` (default: `pcc`; opcions: `stems`, `bav`, `pcc`, `sen2cc`, `no_forest`)
+- `--outputs-dir` (default: `None`; si no es passa crea `outputs/results_DDHHMM`, i amb `--only-step6` usa l'ultim `outputs/results_*`)
+- `--only-step6` (flag; executa nomes el pas 6)
+- `--until-n` (default: `None`; valors `1..14`)
+- `--quiet` (flag; redueix logs verbosos)
 
-Flow-Py (pas 6):
-- `--flowpy-dir Flow-py_Autoates_Editat/FlowPy_detrainment`
-- `--flowpy-alpha 22`
-- `--flowpy-exponent 8`
-- `--flowpy-flux 0.003`
-- `--flowpy-max-z 8000`
-- `--flowpy-infra` (opcional)
+#### Pas 3 - PRA (AutoATES)
 
-Classificacio ATES (pas 9):
-- `--ates-forest-window 5`
-- `--ates-slope-sigma 1.0`
-- `--ates-forest-adjustment paper_pra`
+- `--radius` (default: `6`)
+- `--prob` (default: `0.6`)
+- `--winddir` (default: `0`)
+- `--windtol` (default: `180`)
+- `--pra-thd` (default: `0.15`)
+- `--sf` (default: `3`)
 
-Landforms (pas 10):
-- `--landform-windows 5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30`
-- `--landform-curvature-threshold 1e-4`
-- `--landform-flat-gradient-eps 1e-10`
+#### Pas 4 - PRA_Divisor
 
-Terrain traps (pas 11):
-- `--terrain-forest-tree-threshold 35.0`
-- `--terrain-energy-trauma-threshold 0.35`
-- `--terrain-gully-energy-threshold 0.2`
+- `--divisor-stream-threshold` (default: `850`)
+- `--divisor-channel-init-exponent` (default: `0`)
+- `--divisor-channel-min-slope` (default: `0.005`)
 
-Zones inici/propagacio/frenada (pas 12):
-- `--zones-start-threshold 0.99`
-- `--zones-ending-threshold 0.075`
+#### Pas 5 - Watershed subdivision (GRASS)
+
+- `--watershed-threshold` (default: `12000`)
+- `--watershed-memory` (default: `500`)
+- `--grass-exe` (default: `C:\Program Files\QGIS 3.40.13\bin\grass84.bat`)
+- `--grass-epsg` (default: `None`; si no es passa s'infereix del DEM preprocessat)
+- `--grass-db` (default: `grassdata`)
+- `--grass-location` (default: `watershed_project`)
+- `--grass-mapset` (default: `NOUDIRECTORIDEMAPES`)
+
+#### Pas 6 - Flow-Py per basin
+
+- `--flowpy-dir` (default: `Flow-py_Autoates_Editat/FlowPy_detrainment`)
+- `--flowpy-alpha` (default: `22`)
+- `--flowpy-exponent` (default: `8`)
+- `--flowpy-flux` (default: `0.003`)
+- `--flowpy-max-z` (default: `8000`)
+- `--overhead-exposure-mode` (default: `zdelta_cellcount`; opcions: `zdelta_cellcount`, `zdelta`, `cellcount`)
+- `--flowpy-infra` (default: `None`; raster d'infraestructura opcional)
+
+#### Pas 9 - Classificacio slope + forest
+
+- `--ates-forest-window` (default: `5`)
+- `--ates-slope-sigma` (default: `1.0`)
+- `--ates-forest-adjustment` (default: `paper_pra`; opcions: `legacy`, `conservative`, `paper_pra`, `paper_runout`)
+
+#### Pas 10 - Landforms multiescala
+
+- `--landform-windows` (default: `5,6,7,...,30`)
+- `--landform-curvature-threshold` (default: `1e-4`)
+- `--landform-flat-gradient-eps` (default: `1e-10`)
+
+#### Pas 11 - Terrain traps
+
+- `--terrain-forest-tree-threshold` (default: `35.0`)
+- `--terrain-energy-trauma-threshold` (default: `0.35`)
+- `--terrain-gully-energy-threshold` (default: `0.22`)
+- `--terrain-gully-spi-m` (default: `1.0`)
+- `--terrain-gully-spi-n` (default: `1.0`)
+- `--terrain-gully-spi-threshold` (default: `0.0`; si es `0` usa percentil)
+- `--terrain-gully-spi-percentile` (default: `88.0`)
+- `--terrain-gully-min-drainage-area-m2` (default: `4000.0`)
+- `--terrain-gully-min-slope-deg` (default: `13.0`)
+- `--terrain-gully-max-slope-deg` (default: `48.0`)
+- `--terrain-lake-max-slope-deg` (default: `6.0`)
+- `--terrain-lake-tpi-threshold` (default: `-1.8`)
+- `--terrain-lake-max-spi-threshold` (default: `0.0`; si es `0` usa percentil)
+- `--terrain-lake-max-spi-percentile` (default: `35.0`)
+
+#### Pas 12 - Zones inici/propagacio/frenada
+
+- `--zones-start-threshold` (default: `0.99`)
+- `--zones-ending-threshold` (default: `0.075`)
+
+#### Pas 13 - Runout zone characteristics
+
+- `--runout-flux-min-threshold` (default: `0.01`)
+- `--runout-min-evidence-threshold` (default: `0.03`)
+
+#### Pas 14 - Ponderador weighted ATES
+
+- `--ponderador-exposure-mode` (default: `auto`; opcions: `auto`, `zdelta_cellcount`, `zdelta`, `cellcount`)
+- Amb `auto`, el pas 14 usa automaticament el valor seleccionat a `--overhead-exposure-mode`.
+- `--ponderador-forest-type` (default: `None`; opcions: `stems`, `bav`, `pcc`, `sen2cc`; si no es passa hereta `--forest-type`)
+- `--ponderador-output-name` (default: `Ponderador_ATES.tif`)
+
+Exemple complet:
+
+```bash
+python main.py \
+   --dem inputs/DEM_BOW_SUMMIT.tif \
+   --forest inputs/FOREST_BOW_SUMMIT.tif \
+   --forest-type pcc \
+   --outputs-dir outputs/results_custom \
+   --watershed-threshold 15000 \
+   --divisor-stream-threshold 300 \
+   --flowpy-alpha 22 \
+   --flowpy-max-z 8000 \
+   --ates-forest-adjustment paper_pra \
+   --terrain-gully-spi-percentile 90 \
+   --zones-start-threshold 0.98 \
+   --zones-ending-threshold 0.08 \
+   --ponderador-exposure-mode zdelta_cellcount
+```
 
 ## Execucio de moduls per separat (opcional)
 

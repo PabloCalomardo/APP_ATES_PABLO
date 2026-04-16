@@ -30,9 +30,9 @@ WIN_SIZE= 3
 # Class 0 / 1 Slope Angle Threshold (Default 15)
 SAT01 = 15
 # Class 1 / 2 Slope Angle Threshold (Default 18)
-SAT12 = 18
+SAT12 = 17
 # Class 2 / 3 Slope Angle Threshold (Default 28)
-SAT23 = 28
+SAT23 = 26
 # Class 3 / 4 Slope Angle Threshold (Default 39)
 # This is calculated on a smoothed raster layer, so the slope angle value is not representative of real world values
 SAT34 = 39 # stereo
@@ -41,7 +41,7 @@ SAT34 = 39 # stereo
 # Class 1 Alpha Angle Threshold (Default 18)
 AAT1 = 18
 # Class 2 Alpha Angle Threshold (Default 25)
-AAT2 = 24
+AAT2 = 22
 # Class 3 Alpha Angle Threshold (Default 38)
 AAT3 = 33
 
@@ -82,7 +82,7 @@ if forest_type in ['sen2ccc']:
     TREE3 = 85
 
 # --- Add cell count criteria
-CC1 = 5
+CC1 = 3
 CC2 = 40
 
 # --- Threshold for number of cells in a cluster to be removed (generalization)
@@ -90,13 +90,13 @@ ISL_SIZE = 30000
 
 def _tree_thresholds_for_forest_type(forest_type: str) -> Tuple[int, int, int]:
     if forest_type in ['pcc']:
-        return 10, 50, 65
+        return 12, 55, 75
     if forest_type in ['bav']:
-        return 10, 20, 25
+        return 12, 25, 35
     if forest_type in ['stems']:
-        return 100, 250, 500
+        return 120, 300, 600
     if forest_type in ['sen2cc', 'sen2ccc']:
-        return 20, 60, 85
+        return 25, 65, 90
     raise ValueError(f"Unsupported forest_type for ponderador: {forest_type}")
 
 
@@ -189,8 +189,14 @@ def AutoATES(wd, DEM, canopy, cell_count, FP, SZ, SAT01, SAT12, SAT23, SAT34, AA
 
     # --- Reclassify cell count criteria
     with rasterio.open(cell_count) as src:
-        array = src.read()
-        array = array.astype('int16')
+        raw_exposure = src.read(1).astype('float32')
+        exposure_nodata = src.nodata
+        exposure_present = np.isfinite(raw_exposure)
+        if exposure_nodata is not None:
+            exposure_present &= raw_exposure != exposure_nodata
+        exposure_present &= raw_exposure > 0
+
+        array = raw_exposure.reshape(1, raw_exposure.shape[0], raw_exposure.shape[1]).astype('int16')
         profile = src.profile
 
         # Update metadata
@@ -230,25 +236,23 @@ def AutoATES(wd, DEM, canopy, cell_count, FP, SZ, SAT01, SAT12, SAT23, SAT34, AA
 
 
     # --- Reclassify using the forest criteria
-    # Canopy rasters often come as uint8/uint16; convert to signed int before using -1 sentinels.
-    forest = rasterio.open(canopy).read().astype('int16')
+    # Smooth canopy slightly to reduce hard class boundaries and make forest-type differences less rigid.
+    forest_raw = rasterio.open(canopy).read().astype('float32')
+    forest = scipy.ndimage.uniform_filter(forest_raw, size=(1, 3, 3), mode='nearest').astype('int16')
     forest_open = forest.copy()
     forest_open[forest_open > TREE1] = -1
     forest_open[(forest_open >= 0) & (forest_open <= TREE1)] = 10
-        
-    forest = rasterio.open(canopy).read().astype('int16')
+
     forest_sparse = forest.copy()
     forest_sparse[forest_sparse > TREE2] = -1
     forest_sparse[forest <= TREE1] = -1
     forest_sparse[(forest > TREE1) & (forest <= TREE2)] = 20
-    
-    forest = rasterio.open(canopy).read().astype('int16')
+
     forest_dense = forest.copy()
     forest_dense[forest_dense > TREE3] = -1
     forest_dense[forest_dense <= TREE2] = -1
     forest_dense[(forest_dense > TREE2) & (forest_dense <= TREE3)] = 30
-    
-    forest = rasterio.open(canopy).read().astype('int16')
+
     forest_vdense = forest.copy()
     forest_vdense[forest_vdense < TREE3] = -1
     forest_vdense[forest_vdense >= TREE3] = 40
@@ -282,19 +286,19 @@ def AutoATES(wd, DEM, canopy, cell_count, FP, SZ, SAT01, SAT12, SAT23, SAT34, AA
     array[np.where(array == 14)] = 4
     array[np.where(array == 20)] = 0
     array[np.where(array == 21)] = 1
-    array[np.where(array == 22)] = 1
-    array[np.where(array == 23)] = 2
-    array[np.where(array == 24)] = 3
+    array[np.where(array == 22)] = 2
+    array[np.where(array == 23)] = 3
+    array[np.where(array == 24)] = 4
     array[np.where(array == 30)] = 0
     array[np.where(array == 31)] = 1
-    array[np.where(array == 32)] = 1
-    array[np.where(array == 33)] = 1
+    array[np.where(array == 32)] = 2
+    array[np.where(array == 33)] = 2
     array[np.where(array == 34)] = 3
     array[np.where(array == 40)] = 0
     array[np.where(array == 41)] = 1
-    array[np.where(array == 42)] = 1
-    array[np.where(array == 43)] = 1
-    array[np.where(array == 44)] = 2
+    array[np.where(array == 42)] = 2
+    array[np.where(array == 43)] = 2
+    array[np.where(array == 44)] = 3
     array[np.where(array == 110)] = 0
     array[np.where(array == 111)] = 1
     array[np.where(array == 112)] = 2
@@ -302,20 +306,25 @@ def AutoATES(wd, DEM, canopy, cell_count, FP, SZ, SAT01, SAT12, SAT23, SAT34, AA
     array[np.where(array == 114)] = 4
     array[np.where(array == 120)] = 0
     array[np.where(array == 121)] = 1
-    array[np.where(array == 122)] = 1
-    array[np.where(array == 123)] = 2
+    array[np.where(array == 122)] = 2
+    array[np.where(array == 123)] = 3
     array[np.where(array == 124)] = 3
     array[np.where(array == 130)] = 0
     array[np.where(array == 131)] = 1
-    array[np.where(array == 132)] = 1
+    array[np.where(array == 132)] = 2
     array[np.where(array == 133)] = 2
     array[np.where(array == 134)] = 3
     array[np.where(array == 140)] = 0
     array[np.where(array == 141)] = 1
-    array[np.where(array == 142)] = 1
+    array[np.where(array == 142)] = 2
     array[np.where(array == 143)] = 2
-    array[np.where(array == 144)] = 2
+    array[np.where(array == 144)] = 3
     array[np.where(array < 0)] = 0
+
+    # Exposure must dominate zoning from class 2 upwards: where there is no
+    # exposure evidence, cap the final class to 1.
+    no_exposure_mask = ~exposure_present.reshape(1, exposure_present.shape[0], exposure_present.shape[1])
+    array[np.where(no_exposure_mask & (array > 1))] = 1
 
     array = array.astype('int16')
 
@@ -379,13 +388,13 @@ def run_autoates_weighted(
     out_dir,
     forest_type='bav',
     sat01=15,
-    sat12=18,
-    sat23=28,
+    sat12=17,
+    sat23=26,
     sat34=39,
     aat1=18,
-    aat2=24,
+    aat2=22,
     aat3=33,
-    cc1=5,
+    cc1=3,
     cc2=40,
     isl_size=30000,
     win_size=3,

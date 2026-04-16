@@ -3,13 +3,23 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import rasterio
 
 
 DEFAULT_OUTPUT_NODATA = -9999.0
+EXPOSURE_MODES = ("zdelta_cellcount", "zdelta", "cellcount")
+
+
+def normalize_exposure_mode(mode: str) -> str:
+    normalized = mode.strip().lower()
+    if normalized not in EXPOSURE_MODES:
+        raise ValueError(
+            f"Unsupported exposure mode: {mode}. Valid values: {', '.join(EXPOSURE_MODES)}"
+        )
+    return normalized
 
 
 def read_single_band_raster(path: str | Path) -> tuple[np.ndarray, np.ndarray, dict]:
@@ -69,25 +79,46 @@ def minmax_scale_0_100(data: np.ndarray, valid_mask: np.ndarray) -> np.ndarray:
 
 
 def compute_overhead_exposure(
-    cell_count: np.ndarray,
-    cell_count_valid: np.ndarray,
-    z_delta: np.ndarray,
-    z_delta_valid: np.ndarray,
+    cell_count: Optional[np.ndarray],
+    cell_count_valid: Optional[np.ndarray],
+    z_delta: Optional[np.ndarray],
+    z_delta_valid: Optional[np.ndarray],
+    mode: str = "zdelta_cellcount",
     output_nodata: float = DEFAULT_OUTPUT_NODATA,
 ) -> np.ndarray:
-    """Compute overhead exposure as mean of normalized layers.
+    """Compute overhead exposure from cell_count, z_delta, or both normalized layers."""
+    mode = normalize_exposure_mode(mode)
 
-    exposure = (cell_count_scaled + z_delta_scaled) / 2
-    """
+    if cell_count is not None:
+        shape = cell_count.shape
+    elif z_delta is not None:
+        shape = z_delta.shape
+    else:
+        raise ValueError("At least one input raster array is required")
+
+    out = np.full(shape, output_nodata, dtype=np.float32)
+
+    if mode == "cellcount":
+        if cell_count is None or cell_count_valid is None:
+            raise ValueError("cell_count raster is required for mode=cellcount")
+        cell_count_scaled = minmax_scale_0_100(cell_count, cell_count_valid)
+        out[cell_count_valid] = cell_count_scaled[cell_count_valid]
+        return out
+
+    if mode == "zdelta":
+        if z_delta is None or z_delta_valid is None:
+            raise ValueError("z_delta raster is required for mode=zdelta")
+        z_delta_scaled = minmax_scale_0_100(z_delta, z_delta_valid)
+        out[z_delta_valid] = z_delta_scaled[z_delta_valid]
+        return out
+
+    if cell_count is None or cell_count_valid is None or z_delta is None or z_delta_valid is None:
+        raise ValueError("cell_count and z_delta rasters are required for mode=zdelta_cellcount")
+
     cell_count_scaled = minmax_scale_0_100(cell_count, cell_count_valid)
     z_delta_scaled = minmax_scale_0_100(z_delta, z_delta_valid)
-
     valid_both = cell_count_valid & z_delta_valid
-    out = np.full(cell_count.shape, output_nodata, dtype=np.float32)
-
-    out[valid_both] = (
-        cell_count_scaled[valid_both] + z_delta_scaled[valid_both]
-    ) / 2.0
+    out[valid_both] = (cell_count_scaled[valid_both] + z_delta_scaled[valid_both]) / 2.0
     return out
 
 
@@ -111,47 +142,82 @@ def save_raster(path: str | Path, data: np.ndarray, profile_ref: dict, nodata: f
 
 
 def compute_overhead_exposure_from_files(
-    cell_count_path: str | Path,
-    z_delta_path: str | Path,
+    cell_count_path: str | Path | None,
+    z_delta_path: str | Path | None,
     output_path: str | Path,
+    mode: str = "zdelta_cellcount",
     nodata: float = DEFAULT_OUTPUT_NODATA,
 ) -> Path:
-    """Compute and write overhead exposure raster from two input raster paths."""
-    cell_count, cell_count_valid, cell_count_profile = read_single_band_raster(cell_count_path)
-    z_delta, z_delta_valid, z_delta_profile = read_single_band_raster(z_delta_path)
+    """Compute and write overhead exposure raster from selected input raster paths."""
+    mode = normalize_exposure_mode(mode)
 
-    validate_rasters_aligned(cell_count_profile, z_delta_profile)
+    cell_count = None
+    cell_count_valid = None
+    cell_count_profile = None
+    z_delta = None
+    z_delta_valid = None
+    z_delta_profile = None
+
+    if mode in ("zdelta_cellcount", "cellcount"):
+        if cell_count_path is None:
+            raise ValueError("cell_count_path is required for selected mode")
+        cell_count, cell_count_valid, cell_count_profile = read_single_band_raster(cell_count_path)
+
+    if mode in ("zdelta_cellcount", "zdelta"):
+        if z_delta_path is None:
+            raise ValueError("z_delta_path is required for selected mode")
+        z_delta, z_delta_valid, z_delta_profile = read_single_band_raster(z_delta_path)
+
+    if cell_count_profile is not None and z_delta_profile is not None:
+        validate_rasters_aligned(cell_count_profile, z_delta_profile)
+
+    profile_ref = cell_count_profile if cell_count_profile is not None else z_delta_profile
+    if profile_ref is None:
+        raise ValueError("No input profile available to write output raster")
 
     exposure = compute_overhead_exposure(
         cell_count=cell_count,
         cell_count_valid=cell_count_valid,
         z_delta=z_delta,
         z_delta_valid=z_delta_valid,
+        mode=mode,
         output_nodata=nodata,
     )
 
     return save_raster(
         path=output_path,
         data=exposure,
-        profile_ref=cell_count_profile,
+        profile_ref=profile_ref,
         nodata=nodata,
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compute overhead exposure raster from cell_count and z_delta rasters.",
+        description="Compute overhead exposure from cell_count, z_delta, or both.",
     )
-    parser.add_argument("--cell-count", required=True, help="Path to cell_count raster")
-    parser.add_argument("--z-delta", required=True, help="Path to z_delta raster")
+    parser.add_argument("--cell-count", required=False, help="Path to cell_count raster")
+    parser.add_argument("--z-delta", required=False, help="Path to z_delta raster")
     parser.add_argument("--output", required=True, help="Output overhead exposure raster path")
+    parser.add_argument(
+        "--mode",
+        choices=EXPOSURE_MODES,
+        default="zdelta_cellcount",
+        help="Exposure mode: cellcount, zdelta, or zdelta_cellcount (default)",
+    )
     parser.add_argument(
         "--nodata",
         type=float,
         default=DEFAULT_OUTPUT_NODATA,
         help=f"Output nodata value (default: {DEFAULT_OUTPUT_NODATA})",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    mode = normalize_exposure_mode(args.mode)
+    if mode in ("zdelta_cellcount", "cellcount") and not args.cell_count:
+        parser.error("--cell-count is required for mode=cellcount or mode=zdelta_cellcount")
+    if mode in ("zdelta_cellcount", "zdelta") and not args.z_delta:
+        parser.error("--z-delta is required for mode=zdelta or mode=zdelta_cellcount")
+    return args
 
 
 def main() -> None:
@@ -160,6 +226,7 @@ def main() -> None:
         cell_count_path=args.cell_count,
         z_delta_path=args.z_delta,
         output_path=args.output,
+        mode=args.mode,
         nodata=args.nodata,
     )
 
