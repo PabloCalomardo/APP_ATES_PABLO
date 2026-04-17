@@ -25,6 +25,7 @@ This file is for reading and writing raster files
 
 import rasterio
 import sys
+import numpy as np
 
 def read_header(input_file):
     #Reads in the header of the raster file, input: filepath
@@ -62,36 +63,43 @@ def output_raster(file, file_out, raster, nodata=-9999):
         file_out    path for the outputfile, possible extends are .asc or .tif"""
 
     raster_trans = rasterio.open(file)
+    raster_arr = np.asarray(raster)
+
+    # Some processing paths can produce singleton leading dimensions
+    # (for example (1, H, W) or (1, 1, H, W)). Remove only leading
+    # singleton axes so multi-band arrays keep their band dimension.
+    while raster_arr.ndim > 2 and raster_arr.shape[0] == 1:
+        raster_arr = raster_arr[0]
     try:
         crs = rasterio.crs.CRS.from_dict(raster_trans.crs.data)
     except:
         crs = rasterio.crs.CRS.from_epsg(4326)
-    if raster.ndim == 2:
-        height = raster.shape[0]
-        width = raster.shape[1]
+    if raster_arr.ndim == 2:
+        height = raster_arr.shape[0]
+        width = raster_arr.shape[1]
         count = 1
-    elif raster.ndim == 3:
-        count = raster.shape[0]
-        height = raster.shape[1]
-        width = raster.shape[2]
+    elif raster_arr.ndim == 3:
+        count = raster_arr.shape[0]
+        height = raster_arr.shape[1]
+        width = raster_arr.shape[2]
     else:
         raise ValueError("Raster must be 2D (single-band) or 3D (multi-band).")
 
     if file_out[-3:] == 'asc':
         if count > 1:
             raise ValueError("AAIGrid (.asc) does not support multi-band output.")
-        new_dataset = rasterio.open(file_out, 'w', driver='AAIGrid', height=height, width=width, count=count, dtype=raster.dtype, crs=crs, transform=raster_trans.transform, nodata=nodata)
+        new_dataset = rasterio.open(file_out, 'w', driver='AAIGrid', height=height, width=width, count=count, dtype=raster_arr.dtype, crs=crs, transform=raster_trans.transform, nodata=nodata)
     if file_out[-3:] == 'tif':
-        new_dataset = rasterio.open(file_out, 'w', driver='GTiff', height=height, width=width, count=count, dtype=raster.dtype, crs=crs, transform=raster_trans.transform, nodata=nodata)
+        new_dataset = rasterio.open(file_out, 'w', driver='GTiff', height=height, width=width, count=count, dtype=raster_arr.dtype, crs=crs, transform=raster_trans.transform, nodata=nodata)
 # =============================================================================
 #     if file_out[-3:] != 'tif' & file_out[-3:] != 'asc':
 #         print('This Fileformat is not supported: .{}'.format(file_out[-3:]))
 #         return
 # =============================================================================
     if count == 1:
-        new_dataset.write(raster, 1)
+        new_dataset.write(raster_arr if raster_arr.ndim == 2 else raster_arr[0], 1)
     else:
-        new_dataset.write(raster)
+        new_dataset.write(raster_arr)
     new_dataset.close()
 
 
