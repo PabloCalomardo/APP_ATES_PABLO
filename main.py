@@ -118,6 +118,8 @@ def step_02_preprocess_dem(
 	out_dir: Path,
 	forest_path: Optional[Path] = None,
 	forest_crs: Optional[str] = None,
+	forest_type: Optional[str] = None,
+	flowpy_forest_divisor: Optional[float] = None,
 ) -> tuple[Path, Optional[Path], Optional[Path]]:
 	_ensure_dir(out_dir)
 	out_dem = out_dir / "dem_filled_simple.tif"
@@ -137,6 +139,8 @@ def step_02_preprocess_dem(
 		normalize_forest_for_flowpy(
 			in_forest=out_forest,
 			out_forest=out_forest_normalized,
+			forest_type=forest_type,
+			forest_divisor=flowpy_forest_divisor,
 		)
 
 	return out_dem, out_forest, out_forest_normalized
@@ -532,13 +536,16 @@ def step_14_ponderador_autoates(
 	"""Run ponderador per basin and merge outputs into one global ATES raster."""
 	ponderador_mode = str(ponderador_mode).lower()
 	if ponderador_mode == "hybrid":
-		from Ponderador.AutoATES_classifier import run_autoates_weighted
+		module_name = "Ponderador.AutoATES_classifier"
 	elif ponderador_mode == "original":
-		from Ponderador.AutoATES_classifier_ORIGINAL import run_autoates_weighted
+		module_name = "Ponderador.AutoATES_classifier_ORIGINAL"
 	else:
 		raise ValueError(
 			f"Unsupported ponderador_mode: {ponderador_mode}. Use 'hybrid' or 'original'."
 		)
+
+	ponderador_module = importlib.import_module(module_name)
+	run_autoates_weighted = getattr(ponderador_module, "run_autoates_weighted")
 
 	_ensure_dir(definitive_layers_dir)
 	basins = _list_pra_basins(watershed_out_dir)
@@ -808,8 +815,8 @@ def step_06_flowpy_per_basin(
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description="Run APP_ATES_PABLO pipeline (steps 1-14).")
-	parser.add_argument("--dem", default="inputs/DEM_ATES_CONNAUGHT.tif", help="Path to input DEM (GeoTIFF)") #DEM_BOW_SUMMIT
-	parser.add_argument("--forest", default="inputs/FOREST_ATES_CONNAUGHT.tif", help="Path to forest density raster (GeoTIFF)") # FOREST_BOW_SUMMIT
+	parser.add_argument("--dem", default="inputs/DEM_BOW_SUMMIT.tif", help="Path to input DEM (GeoTIFF)") #DEM_ATES_CONNAUGHT DEM_BOW_SUMMIT
+	parser.add_argument("--forest", default="inputs/FOREST_BOW_SUMMIT.tif", help="Path to forest density raster (GeoTIFF)") # FOREST_BOW_SUMMIT FOREST_ATES_CONNAUGHT
 	parser.add_argument(
 		"--forest-crs",
 		default=None,
@@ -876,14 +883,14 @@ def parse_args() -> argparse.Namespace:
 		default="Flow-py_Autoates_Editat/FlowPy_detrainment",
 		help="Path to Flow-Py code directory containing main.py",
 	)
-	parser.add_argument("--flowpy-alpha", type=int, default=22)
+	parser.add_argument("--flowpy-alpha", type=int, default=24)
 	parser.add_argument("--flowpy-exponent", type=int, default=8)
 	parser.add_argument("--flowpy-flux", type=float, default=0.003)
-	parser.add_argument("--flowpy-max-z", type=float, default=8000) #default ESTANDARD 270
+	parser.add_argument("--flowpy-max-z", type=float, default=270) #default ESTANDARD 270
 	parser.add_argument(
 		"--overhead-cellcount-weight",
 		type=float,
-		default=0.5,
+		default=0.0,
 		help=(
 			"Weight for normalized cell_count in step 8 [0..1]. "
 			"z_delta weight is (1 - value). Use 2 for max mode "
@@ -894,6 +901,15 @@ def parse_args() -> argparse.Namespace:
 		"--flowpy-infra",
 		default=None,
 		help="Optional infrastructure raster passed to Flow-Py as infra=...",
+	)
+	parser.add_argument(
+		"--flowpy-forest-divisor",
+		type=float,
+		default=None,
+		help=(
+			"Optional divisor to normalize forest for Flow-Py (normalized = clip(forest,0,+inf)/divisor, clipped to 0..1). "
+			"If omitted: automatic scaling is 0->0 and max->1 using the input forest raster."
+		),
 	)
 
 	# --- Slope + Forest classification (step 9)
@@ -1088,19 +1104,31 @@ def main() -> None:
 
 	if args.only_step6:
 		dem_filled = out_02 / "dem_filled_simple.tif"
+		forest_aligned = out_02 / "forest_aligned.tif"
 		forest_normalized = out_02 / "FOREST_NORMALIZED.tif"
 		if not dem_filled.exists():
 			raise RuntimeError(
 				"Missing preprocessed DEM for step 6 only mode: "
 				f"{dem_filled}. Run full pipeline first (steps 1-5)."
 			)
-		if forest_path is not None and not forest_normalized.exists():
-			raise RuntimeError(
-				"Missing normalized forest raster for step 6 only mode: "
-				f"{forest_normalized}. Run full pipeline first (steps 1-5)."
+		if forest_path is not None and args.forest_type != "no_forest":
+			if not forest_aligned.exists():
+				raise RuntimeError(
+					"Missing aligned forest raster for step 6 only mode: "
+					f"{forest_aligned}. Run full pipeline first (steps 1-5)."
+				)
+			normalize_forest_for_flowpy(
+				in_forest=forest_aligned,
+				out_forest=forest_normalized,
+				forest_type=args.forest_type,
+				forest_divisor=args.flowpy_forest_divisor,
 			)
 
-		flowpy_forest_for_step6 = forest_normalized if forest_normalized.exists() else None
+		if forest_path is None or args.forest_type == "no_forest":
+			flowpy_forest_for_step6 = None
+		else:
+			flowpy_forest_for_step6 = forest_normalized if forest_normalized.exists() else None
+		print(f"[only-step6] Flow-Py forest input: {flowpy_forest_for_step6}")
 
 		print("[only-step6] Running Flow-Py per basin using existing outputs...")
 		step_06_flowpy_per_basin(
@@ -1134,6 +1162,8 @@ def main() -> None:
 		out_dir=out_02,
 		forest_path=forest_path,
 		forest_crs=args.forest_crs,
+		forest_type=args.forest_type,
+		flowpy_forest_divisor=args.flowpy_forest_divisor,
 	)
 	if until_n == 2:
 		print("Stopped at step 2 (--until-n).")
@@ -1141,7 +1171,10 @@ def main() -> None:
 		return
 
 	pra_forest_path = forest_aligned if forest_aligned is not None else forest_path
-	flowpy_forest_for_run = forest_normalized
+	if args.forest_type == "no_forest":
+		flowpy_forest_for_run = None
+	else:
+		flowpy_forest_for_run = forest_normalized
 
 	print("[3] Computing PRA...")
 	pra_outputs = step_03_pra_autoates(
@@ -1213,6 +1246,7 @@ def main() -> None:
 		return
 
 	print("[6] Running Flow-Py per basin...")
+	print(f"        Flow-Py forest input: {flowpy_forest_for_run}")
 	step_06_flowpy_per_basin(
 		dem_path=dem_filled,
 		watershed_out_dir=out_05,

@@ -204,11 +204,16 @@ def fill_dem_simple(in_dem: str | Path, out_dem: str | Path) -> Path:
 def normalize_forest_for_flowpy(
 	in_forest: str | Path,
 	out_forest: str | Path,
+	forest_type: str | None = None,
+	forest_divisor: float | None = None,
 ) -> Path:
 	"""Normalize forest raster for Flow-Py to a 0..1 range.
 
-	Valid values are clipped to be non-negative and scaled by the maximum value
-	found in the layer (0..max). Nodata and DEM-outside footprint remain nodata.
+	Valid values are clipped to be non-negative and scaled by the observed
+	maximum valid value in the layer (0 -> 0, max -> 1).
+	If forest_divisor is provided (>0), it overrides automatic max scaling.
+	Nodata and DEM-outside footprint remain nodata.
+	Cells with normalized value 0 (no forest) are exported as nodata (-9999).
 	"""
 
 	in_path = Path(in_forest).expanduser().resolve()
@@ -234,13 +239,19 @@ def normalize_forest_for_flowpy(
 
 	norm = np.zeros_like(arr_f, dtype="float32")
 	valid_nonneg = np.clip(arr_f[valid], 0.0, None)
-	max_valid = float(np.max(valid_nonneg)) if valid_nonneg.size else 0.0
-	if max_valid > 0.0:
-		norm[valid] = valid_nonneg / max_valid
+	if forest_divisor is not None:
+		if forest_divisor <= 0:
+			raise ValueError("forest_divisor must be > 0")
+		norm[valid] = np.clip(valid_nonneg / float(forest_divisor), 0.0, 1.0)
 	else:
-		norm[valid] = 0.0
+		max_valid = float(np.max(valid_nonneg)) if valid_nonneg.size else 0.0
+		if max_valid > 0.0:
+			norm[valid] = valid_nonneg / max_valid
+		else:
+			norm[valid] = 0.0
 
 	out_nodata = -9999.0
+	norm[np.logical_and(valid, norm <= 0.0)] = out_nodata
 	norm[~valid] = out_nodata
 
 	profile.update(count=1, dtype="float32", nodata=out_nodata, compress="deflate")

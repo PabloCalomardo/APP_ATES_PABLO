@@ -78,6 +78,14 @@ def build_whitebox(work_dir: Path, verbose: bool = True) -> WhiteboxTools:
 	return wbt
 
 
+def require_output(path: Path, step_name: str) -> None:
+	if not path.exists():
+		raise RuntimeError(
+			f"Whitebox step '{step_name}' did not create expected output: {path}. "
+			"Review Whitebox messages above and verify write permissions/locks on the output folder."
+		)
+
+
 def stage_1_preprocess_and_strahler(
 	wbt: WhiteboxTools,
 	dem_path: Path,
@@ -103,12 +111,14 @@ def stage_1_preprocess_and_strahler(
 		output=str(filled_dem),
 		fix_flats=True,
 	)
+	require_output(filled_dem, "fill_depressions")
 
 	wbt.d8_pointer(
 		dem=str(filled_dem),
 		output=str(d8_pointer),
 		esri_pntr=True,
 	)
+	require_output(d8_pointer, "d8_pointer")
 
 	wbt.d8_flow_accumulation(
 		i=str(d8_pointer),
@@ -117,12 +127,14 @@ def stage_1_preprocess_and_strahler(
 		pntr=True,
 		esri_pntr=True,
 	)
+	require_output(d8_accum, "d8_flow_accumulation")
 
 	wbt.slope(
 		dem=str(filled_dem),
 		output=str(slope_deg),
 		units="degrees",
 	)
+	require_output(slope_deg, "slope")
 
 	with rasterio.open(d8_accum) as src_accum:
 		accum = src_accum.read(1, masked=True).astype(np.float32)
@@ -151,6 +163,7 @@ def stage_1_preprocess_and_strahler(
 		output=str(strahler),
 		esri_pntr=True,
 	)
+	require_output(strahler, "strahler_stream_order")
 
 	with rasterio.open(filled_dem) as src:
 		profile = src.profile.copy()
