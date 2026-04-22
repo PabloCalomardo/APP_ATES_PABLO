@@ -15,7 +15,7 @@ __pycache__/
 # Project data folders (requested)
 outputs/
 grassdata/
-
+Verificador/
 # Local/editor/system files
 .vscode/
 .idea/

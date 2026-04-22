@@ -883,7 +883,7 @@ def parse_args() -> argparse.Namespace:
 		default="Flow-py_Autoates_Editat/FlowPy_detrainment",
 		help="Path to Flow-Py code directory containing main.py",
 	)
-	parser.add_argument("--flowpy-alpha", type=int, default=24)
+	parser.add_argument("--flowpy-alpha", type=int, default=22)
 	parser.add_argument("--flowpy-exponent", type=int, default=8)
 	parser.add_argument("--flowpy-flux", type=float, default=0.003)
 	parser.add_argument("--flowpy-max-z", type=float, default=270) #default ESTANDARD 270
