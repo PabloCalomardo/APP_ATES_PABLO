@@ -263,7 +263,7 @@ Nota:
 - `--dem` (default: `inputs/DEM_BOW_SUMMIT.tif`)
 - `--forest` (default: `inputs/FOREST_BOW_SUMMIT.tif`)
 - `--forest-crs` (default: `None`; CRS opcional si el raster no porta metadades)
-- `--forest-type` (default: `pcc`; opcions: `stems`, `bav`, `pcc`, `sen2cc`, `no_forest`)
+- `--forest-type` (default: `bav`; opcions: `stems`, `bav`, `pcc`, `sen2cc`, `no_forest`)
 - `--outputs-dir` (default: `None`; si no es passa crea `outputs/results_DDHHMM`, i amb `--only-step6` usa l'ultim `outputs/results_*`)
 - `--only-step6` (flag; executa nomes el pas 6)
 - `--until-n` (default: `None`; valors `1..14`)

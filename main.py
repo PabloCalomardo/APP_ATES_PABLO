@@ -824,7 +824,7 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"--forest-type",
-		default="pcc",
+		default="bav",
 		choices=["stems", "bav", "pcc", "sen2cc", "no_forest"],
 		help="Forest input type expected by PRA module",
 	)
