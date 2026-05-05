@@ -32,7 +32,7 @@ SAT01 = 15
 # Class 1 / 2 Slope Angle Threshold (Default 18)
 SAT12 = 18
 # Class 2 / 3 Slope Angle Threshold (Default 28)
-SAT23 = 28
+SAT23 = 26
 # Class 3 / 4 Slope Angle Threshold (Default 39)
 # This is calculated on a smoothed raster layer, so the slope angle value is not representative of real world values
 SAT34 = 39 # stereo
@@ -83,7 +83,7 @@ if forest_type in ['sen2ccc']:
 
 # --- Add cell count criteria
 CC1 = 5
-CC2 = 40
+CC2 = 36
 
 # --- Threshold for number of cells in a cluster to be removed (generalization)
 ISL_SIZE = 30000
@@ -810,19 +810,19 @@ def AutoATES(wd, DEM, canopy, cell_count, FP, SAT01, SAT12, SAT23, SAT34, AAT1, 
     array[np.where(array == 114)] = 4
     array[np.where(array == 120)] = 0
     array[np.where(array == 121)] = 1
-    array[np.where(array == 122)] = 1
-    array[np.where(array == 123)] = 2
+    array[np.where(array == 122)] = 2  # relaxed: slope2+sparse now Class 2 (was 1)
+    array[np.where(array == 123)] = 3  # INCREASED: slope2+sparse+PRA now Class 3 (was 2)
     array[np.where(array == 124)] = 3
     array[np.where(array == 130)] = 0
-    array[np.where(array == 131)] = 1
-    array[np.where(array == 132)] = 1
-    array[np.where(array == 133)] = 2
+    array[np.where(array == 131)] = 2  # relaxed: slope3 now Class 2 (was 1)
+    array[np.where(array == 132)] = 2  # relaxed: slope3+sparse now Class 2 (was 1)
+    array[np.where(array == 133)] = 3  # slope3+sparse+PRA stays Class 3
     array[np.where(array == 134)] = 3
     array[np.where(array == 140)] = 0
-    array[np.where(array == 141)] = 1
-    array[np.where(array == 142)] = 1
-    array[np.where(array == 143)] = 2
-    array[np.where(array == 144)] = 2
+    array[np.where(array == 141)] = 2  # relaxed: slope3+dense now Class 2 (was 1)
+    array[np.where(array == 142)] = 2  # relaxed: slope3+dense+sparse now Class 2 (was 1)
+    array[np.where(array == 143)] = 3  # slope3+dense+PRA stays Class 3
+    array[np.where(array == 144)] = 3  # INCREASED: slope4+dense+cc now Class 3 (was 2)
     array[np.where(array < 0)] = 0
 
     array = array.astype('int16')

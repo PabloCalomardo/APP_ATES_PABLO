@@ -944,7 +944,7 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument("--flowpy-alpha", type=int, default=24)
 	parser.add_argument("--flowpy-exponent", type=int, default=8)
-	parser.add_argument("--flowpy-flux", type=float, default=0.003)
+	parser.add_argument("--flowpy-flux", type=float, default=0.003) #default 0.003
 	parser.add_argument("--flowpy-max-z", type=float, default=270) #default ESTANDARD 270
 	parser.add_argument(
 		"--overhead-cellcount-weight",
@@ -969,6 +969,11 @@ def parse_args() -> argparse.Namespace:
 			"Optional divisor to normalize forest for Flow-Py (normalized = clip(forest,0,+inf)/divisor, clipped to 0..1). "
 			"If omitted: automatic scaling is 0->0 and max->1 using the input forest raster."
 		),
+	)
+	parser.add_argument(
+		"--flowpy-no-forest",
+		action="store_true",
+		help="Do not pass the forest raster to Flow-Py (still use forest in other steps).",
 	)
 
 	# --- Slope + Forest classification (step 9)
@@ -1283,6 +1288,10 @@ def main() -> None:
 			flowpy_forest_for_step6 = None
 		else:
 			flowpy_forest_for_step6 = forest_normalized if forest_normalized.exists() else None
+
+		# Honor explicit override: do not pass forest to Flow-Py even if available
+		if args.flowpy_no_forest:
+			flowpy_forest_for_step6 = None
 		print(f"[only-step6] Flow-Py forest input: {flowpy_forest_for_step6}")
 
 		print("[only-step6] Running Flow-Py per basin using existing outputs...")
@@ -1330,6 +1339,10 @@ def main() -> None:
 		flowpy_forest_for_run = None
 	else:
 		flowpy_forest_for_run = forest_normalized
+
+	# If user requested Flow-Py to run without forest, override here (still keep forest for other steps)
+	if args.flowpy_no_forest:
+		flowpy_forest_for_run = None
 
 	print("[3] Computing PRA...")
 	pra_outputs = step_03_pra_autoates(
