@@ -555,6 +555,90 @@ def _merge_rasters_max(input_paths: List[Path], output_path: Path) -> Path:
 	return output_path
 
 
+def _apply_directional_class2_to_3_filter(
+	raster_path: Path,
+	ray_lengths: tuple[int, ...],
+	min_matching_directions: int = 4,
+	source_class: int = 2,
+	target_class: int = 3,
+	reference_class: int = 4,
+) -> Path:
+	"""Promote class-2 cells to class 3 if class 4 is seen in enough ray directions."""
+	if len(ray_lengths) != 8:
+		raise ValueError("ray_lengths must contain exactly 8 values (N,NE,E,SE,S,SW,W,NW)")
+	if min_matching_directions < 1 or min_matching_directions > 8:
+		raise ValueError("min_matching_directions must be in [1, 8]")
+	if any(int(v) < 1 for v in ray_lengths):
+		raise ValueError("All ray lengths must be >= 1")
+
+	try:
+		import numpy as np
+		import rasterio
+	except Exception as e:  # pragma: no cover
+		raise RuntimeError("Missing dependencies for directional class filter (numpy/rasterio)") from e
+
+	with rasterio.open(raster_path) as src:
+		arr = src.read(1)
+		profile = src.profile.copy()
+
+	height, width = arr.shape
+	class2_mask = arr == source_class
+	class4_mask = arr == reference_class
+	if not class2_mask.any() or not class4_mask.any():
+		return raster_path
+
+	# Direction order: N, NE, E, SE, S, SW, W, NW
+	directions = [
+		(-1, 0),
+		(-1, 1),
+		(0, 1),
+		(1, 1),
+		(1, 0),
+		(1, -1),
+		(0, -1),
+		(-1, -1),
+	]
+
+	direction_hits = np.zeros((8, height, width), dtype=bool)
+
+	for dir_idx, (dr, dc) in enumerate(directions):
+		ray_len = int(ray_lengths[dir_idx])
+		hits = direction_hits[dir_idx]
+		for dist in range(1, ray_len + 1):
+			dr_d = dr * dist
+			dc_d = dc * dist
+
+			if dr_d >= 0:
+				dst_r = slice(0, height - dr_d)
+				src_r = slice(dr_d, height)
+			else:
+				dst_r = slice(-dr_d, height)
+				src_r = slice(0, height + dr_d)
+
+			if dc_d >= 0:
+				dst_c = slice(0, width - dc_d)
+				src_c = slice(dc_d, width)
+			else:
+				dst_c = slice(-dc_d, width)
+				src_c = slice(0, width + dc_d)
+
+			hits[dst_r, dst_c] |= class4_mask[src_r, src_c]
+
+	direction_count = np.sum(direction_hits, axis=0)
+	to_promote = np.logical_and(class2_mask, direction_count >= int(min_matching_directions))
+	if not to_promote.any():
+		return raster_path
+
+	arr_out = arr.copy()
+	arr_out[to_promote] = target_class
+
+	profile.update(dtype="int16", compress="deflate")
+	with rasterio.open(raster_path, "w", **profile) as dst:
+		dst.write(arr_out.astype("int16", copy=False), 1)
+
+	return raster_path
+
+
 def step_14_ponderador_autoates(
 	dem_path: Path,
 	forest_path: Path,
@@ -574,6 +658,9 @@ def step_14_ponderador_autoates(
 	class4_entropy_max_for_downgrade: float = 0.0,
 	class4_entropy_threshold: float = 0.55,
 	class4_entropy_min_cluster_cells: int = 25,
+	directional_2to3_enabled: bool = True,
+	directional_2to3_ray_lengths: tuple[int, ...] = (8, 8, 8, 8, 8, 8, 8, 8),
+	directional_2to3_min_directions: int = 4,
 ) -> tuple[List[Path], Path]:
 	"""Run ponderador per basin and merge outputs into one global ATES raster."""
 	ponderador_mode = str(ponderador_mode).lower()
@@ -649,6 +736,12 @@ def step_14_ponderador_autoates(
 		input_paths=basin_outputs,
 		output_path=definitive_layers_dir / output_name,
 	)
+	if directional_2to3_enabled:
+		_apply_directional_class2_to_3_filter(
+			raster_path=global_output,
+			ray_lengths=directional_2to3_ray_lengths,
+			min_matching_directions=directional_2to3_min_directions,
+		)
 	return basin_outputs, global_output
 
 
@@ -949,7 +1042,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--overhead-cellcount-weight",
 		type=float,
-		default=0.0,
+		default=2,
 		help=(
 			"Weight for normalized cell_count in step 8 [0..1]. "
 			"z_delta weight is (1 - value). Use 2 for max mode "
@@ -1177,6 +1270,25 @@ def parse_args() -> argparse.Namespace:
 		default=25,
 		help="Min connected-cell size for derived high-entropy clusters (default: 25)",
 	)
+	parser.add_argument(
+		"--ponderador-dir2to3-disable",
+		action="store_true",
+		help="Disable final directional 2->3 reclassification on merged ponderador raster",
+	)
+	parser.add_argument(
+		"--ponderador-dir2to3-ray-lengths",
+		default="25",
+		help=(
+			"Directional ray lengths for 2->3 filter. Use one integer for all directions "
+			"or 8 comma-separated integers in N,NE,E,SE,S,SW,W,NW order."
+		),
+	)
+	parser.add_argument(
+		"--ponderador-dir2to3-min-directions",
+		type=int,
+		default=6,
+		help="Minimum matching directions with class 4 to promote class 2 -> 3 (default: 4)",
+	)
 
 	args = parser.parse_args()
 
@@ -1194,6 +1306,29 @@ def parse_args() -> argparse.Namespace:
 				parser.error(f"{arg_name} contains invalid class {klass}. Allowed range is 1..9")
 			parsed.append(klass)
 		return tuple(sorted(set(parsed)))
+
+	def _parse_ray_lengths(text: str, arg_name: str) -> tuple[int, ...]:
+		values = [chunk.strip() for chunk in str(text).split(",") if chunk.strip()]
+		if not values:
+			parser.error(f"{arg_name} must contain one integer or 8 comma-separated integers")
+
+		parsed: List[int] = []
+		for raw in values:
+			try:
+				value = int(raw)
+			except ValueError:
+				parser.error(f"{arg_name} contains a non-integer value: {raw}")
+			if value < 1:
+				parser.error(f"{arg_name} values must be >= 1")
+			parsed.append(value)
+
+		if len(parsed) == 1:
+			return tuple([parsed[0]] * 8)
+		if len(parsed) != 8:
+			parser.error(
+				f"{arg_name} must have either 1 value or exactly 8 values in N,NE,E,SE,S,SW,W,NW order"
+			)
+		return tuple(parsed)
 
 	if args.only_step6 and args.until_n is not None:
 		parser.error("--only-step6 cannot be used together with --until-n")
@@ -1215,6 +1350,8 @@ def parse_args() -> argparse.Namespace:
 		parser.error("--ponderador-class4-entropy-threshold must be in [0, 1]")
 	if args.ponderador_class4_entropy_min_cluster_cells < 1:
 		parser.error("--ponderador-class4-entropy-min-cluster-cells must be >= 1")
+	if args.ponderador_dir2to3_min_directions < 1 or args.ponderador_dir2to3_min_directions > 8:
+		parser.error("--ponderador-dir2to3-min-directions must be in [1, 8]")
 
 	args.ponderador_class4_safe_classes = _parse_class_set(
 		args.ponderador_class4_safe_classes,
@@ -1223,6 +1360,10 @@ def parse_args() -> argparse.Namespace:
 	args.ponderador_class4_unsafe_classes = _parse_class_set(
 		args.ponderador_class4_unsafe_classes,
 		"--ponderador-class4-unsafe-classes",
+	)
+	args.ponderador_dir2to3_ray_lengths = _parse_ray_lengths(
+		args.ponderador_dir2to3_ray_lengths,
+		"--ponderador-dir2to3-ray-lengths",
 	)
 	return args
 
@@ -1587,6 +1728,9 @@ def main() -> None:
 		class4_entropy_max_for_downgrade=args.ponderador_class4_entropy_max_for_downgrade,
 		class4_entropy_threshold=args.ponderador_class4_entropy_threshold,
 		class4_entropy_min_cluster_cells=args.ponderador_class4_entropy_min_cluster_cells,
+		directional_2to3_enabled=not args.ponderador_dir2to3_disable,
+		directional_2to3_ray_lengths=args.ponderador_dir2to3_ray_lengths,
+		directional_2to3_min_directions=args.ponderador_dir2to3_min_directions,
 	)
 	print(f"        ponderador_global: {ponderador_global_output.name}")
 	for basin_output in ponderador_basin_outputs:
