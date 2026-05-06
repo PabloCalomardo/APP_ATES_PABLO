@@ -745,6 +745,32 @@ def step_14_ponderador_autoates(
 	return basin_outputs, global_output
 
 
+def _apply_ponderador_smoothing(
+	raster_path: Path,
+	method: str,
+	overwrite: bool,
+	class_island_min_size: int,
+	radius: int,
+	iterations: int,
+	vectorize_tolerance: float,
+	vectorize_chaikin_iterations: int,
+) -> Path:
+	if str(method).strip().lower() in {"none", "off", "false"}:
+		return raster_path
+	from Ponderador.Filters import apply_filter
+
+	return apply_filter(
+		raster_path,
+		method=method,
+		overwrite=overwrite,
+		class_island_min_size=class_island_min_size,
+		radius=radius,
+		iterations=iterations,
+		simplify_tolerance=vectorize_tolerance,
+		chaikin_iterations=vectorize_chaikin_iterations,
+	)
+
+
 def _load_flowpy_entrypoint(flowpy_dir: Path) -> Callable[[List[str], Dict[str, str]], None]:
 	"""Load Flow-Py terminal entrypoint without executing its __main__ block."""
 	flowpy_main = (flowpy_dir / "main.py").resolve()
@@ -1289,6 +1315,47 @@ def parse_args() -> argparse.Namespace:
 		default=6,
 		help="Minimum matching directions with class 4 to promote class 2 -> 3 (default: 4)",
 	)
+	parser.add_argument(
+		"--ponderador-smoothing",
+		choices=["none", "modal", "morph", "vectorize"],
+		default="modal",
+		help="Smoothing method applied to the merged ponderador raster (default: modal)",
+	)
+	parser.add_argument(
+		"--ponderador-smoothing-radius",
+		type=int,
+		default=1,
+		help="Radius for the morphological smoothing filter (default: 1)",
+	)
+	parser.add_argument(
+		"--ponderador-smoothing-iterations",
+		type=int,
+		default=1,
+		help="Number of morphology passes for the morphological smoothing filter",
+	)
+	parser.add_argument(
+		"--ponderador-smoothing-vectorize-tolerance",
+		type=float,
+		default=0.0,
+		help="Optional simplify tolerance for the vectorize/smooth/rasterize filter",
+	)
+	parser.add_argument(
+		"--ponderador-smoothing-chaikin-iterations",
+		type=int,
+		default=2,
+		help="Chaikin iterations for the vectorize/smooth/rasterize filter",
+	)
+	parser.add_argument(
+		"--ponderador-smoothing-overwrite",
+		action="store_true",
+		help="Overwrite the merged ponderador raster instead of writing *_smoothed.tif",
+	)
+	parser.add_argument(
+		"--ponderador-class-island-min-size",
+		type=int,
+		default=15,
+		help="Minimum 8-connected class island size to keep in ponderador postprocess (default: 15)",
+	)
 
 	args = parser.parse_args()
 
@@ -1352,6 +1419,16 @@ def parse_args() -> argparse.Namespace:
 		parser.error("--ponderador-class4-entropy-min-cluster-cells must be >= 1")
 	if args.ponderador_dir2to3_min_directions < 1 or args.ponderador_dir2to3_min_directions > 8:
 		parser.error("--ponderador-dir2to3-min-directions must be in [1, 8]")
+	if args.ponderador_smoothing_radius < 1:
+		parser.error("--ponderador-smoothing-radius must be >= 1")
+	if args.ponderador_smoothing_iterations < 1:
+		parser.error("--ponderador-smoothing-iterations must be >= 1")
+	if args.ponderador_smoothing_vectorize_tolerance < 0.0:
+		parser.error("--ponderador-smoothing-vectorize-tolerance must be >= 0")
+	if args.ponderador_smoothing_chaikin_iterations < 0:
+		parser.error("--ponderador-smoothing-chaikin-iterations must be >= 0")
+	if args.ponderador_class_island_min_size < 1:
+		parser.error("--ponderador-class-island-min-size must be >= 1")
 
 	args.ponderador_class4_safe_classes = _parse_class_set(
 		args.ponderador_class4_safe_classes,
@@ -1731,6 +1808,16 @@ def main() -> None:
 		directional_2to3_enabled=not args.ponderador_dir2to3_disable,
 		directional_2to3_ray_lengths=args.ponderador_dir2to3_ray_lengths,
 		directional_2to3_min_directions=args.ponderador_dir2to3_min_directions,
+	)
+	ponderador_global_output = _apply_ponderador_smoothing(
+		raster_path=ponderador_global_output,
+		method=args.ponderador_smoothing,
+		overwrite=args.ponderador_smoothing_overwrite,
+		class_island_min_size=args.ponderador_class_island_min_size,
+		radius=args.ponderador_smoothing_radius,
+		iterations=args.ponderador_smoothing_iterations,
+		vectorize_tolerance=args.ponderador_smoothing_vectorize_tolerance,
+		vectorize_chaikin_iterations=args.ponderador_smoothing_chaikin_iterations,
 	)
 	print(f"        ponderador_global: {ponderador_global_output.name}")
 	for basin_output in ponderador_basin_outputs:
